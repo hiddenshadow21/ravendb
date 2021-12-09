@@ -53,7 +53,7 @@ namespace SlowTests.Voron.Bugs
 
                 var branchPage = tree.GetReadOnlyTreePage(branchPageNumber);
 
-                var parent = tree.GetParentPageOf(branchPage);
+                var parent = tree.GetParentPageOf(branchPage, null);
 
                 Assert.Equal(tree.State.RootPageNumber, parent);
 
@@ -62,7 +62,7 @@ namespace SlowTests.Voron.Bugs
                     tree.Delete(nodeKey);
                 }
 
-                parent = tree.GetParentPageOf(branchPage);
+                parent = tree.GetParentPageOf(branchPage, null);
 
                 Assert.Equal(tree.State.RootPageNumber, parent);
             }

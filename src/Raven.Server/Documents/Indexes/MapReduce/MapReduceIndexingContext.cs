@@ -17,6 +17,8 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
         public FixedSizeTree DocumentMapEntries;
 
+        public HashSet<string> IdsOfMappedDocumentsInCurrentBatch = new HashSet<string>();
+
         public Tree MapPhaseTree;
         public Tree ReducePhaseTree;
         
@@ -46,6 +48,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
             ProcessedTombstoneEtags.Clear();
             StoreByReduceKeyHash.Clear();
             FreedPages.Clear();
+            IdsOfMappedDocumentsInCurrentBatch.Clear();
         }
 
         public unsafe void StoreNextMapResultId()

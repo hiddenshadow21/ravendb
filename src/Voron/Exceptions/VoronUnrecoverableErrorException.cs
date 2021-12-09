@@ -93,7 +93,7 @@ namespace Voron.Exceptions
         {
         }
 
-        private VoronUnrecoverableErrorException(string message, Exception inner)
+        public VoronUnrecoverableErrorException(string message, Exception inner)
             : base(message, inner)
         {
         }

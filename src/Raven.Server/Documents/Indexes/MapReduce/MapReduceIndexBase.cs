@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.CompilerServices;
 using Raven.Client.Documents.Indexes;
 using Raven.Server.Documents.Includes;
@@ -15,6 +16,7 @@ using Voron.Data.Fixed;
 using Voron.Impl;
 using Sparrow;
 using Voron.Debugging;
+using Voron.Exceptions;
 using Voron.Util;
 
 namespace Raven.Server.Documents.Indexes.MapReduce
@@ -108,7 +110,39 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                 Queue<MapEntry> existingEntries = null;
 
                 using (_stats.GetMapEntriesTree.Start())
-                    MapReduceWorkContext.DocumentMapEntries.RepurposeInstance(docIdAsSlice, clone: false);
+                {
+                    try
+                    {
+                        MapReduceWorkContext.DocumentMapEntries.RepurposeInstance(docIdAsSlice, clone: false);
+
+                        MapReduceWorkContext.IdsOfMappedDocumentsInCurrentBatch.Add(docIdAsSlice.ToString());
+                    }
+                    catch (VoronUnrecoverableErrorException e)
+                    {
+                        try
+                        {
+                            var tempPath = _indexStorage.Environment().Options.TempPath;
+
+                            using (var debugInfo = File.Create(tempPath.Combine($"{nameof(MapReduceWorkContext.IdsOfMappedDocumentsInCurrentBatch)}.{Guid.NewGuid()}").FullPath))
+                            using (var textWriter = new StreamWriter(debugInfo))
+                            {
+                                foreach (string docId in MapReduceWorkContext.IdsOfMappedDocumentsInCurrentBatch)
+                                {
+                                    textWriter.WriteLine(docId);
+                                }
+
+                                textWriter.Flush();
+                                debugInfo.Flush(true);
+                            }
+                        }
+                        catch
+                        {
+                            
+                        }
+                        
+                        throw new VoronUnrecoverableErrorException($"Failed to repurpose DocumentMapEntries tree instance for document '{docIdAsSlice}'", e);
+                    }
+                }
 
                 if (MapReduceWorkContext.DocumentMapEntries.NumberOfEntries > 0)
                 {

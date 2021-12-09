@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Sparrow;
 using Voron.Data.Compression;
 using Voron.Data.Fixed;
@@ -658,8 +659,12 @@ namespace Voron.Data.BTrees
             bool rightmostPage = true;
             bool leftmostPage = true;
 
+            TreePage lastBranch = null;
+
             while ((p.TreeFlags & TreePageFlags.Branch) == TreePageFlags.Branch)
             {
+                lastBranch = p;
+
                 int nodePos;
 
                 if (key.Options == SliceOptions.Key)
@@ -686,7 +691,17 @@ namespace Voron.Data.BTrees
             }
 
             if (p.IsLeaf == false)
-                VoronUnrecoverableErrorException.Raise(_llt, "Index points to a non leaf page " + p.PageNumber);
+            {
+                var debugDetails = TryToGetMoreDetailsAboutPage(p);
+                
+                debugDetails.Append($"Root page number: {State.RootPageNumber}. ");
+                debugDetails.Append($"Searched key: {key} (size - {key.Size}, hasVale: {key.HasValue}, content flags: {key.Content.Flags}). ");
+
+                if (lastBranch != null)
+                    debugDetails.Append($"Last branch page - {TryToGetMoreDetailsAboutPage(lastBranch)}");
+
+                VoronUnrecoverableErrorException.Raise(_llt, $"Index points to a non leaf page {p.PageNumber} in '{Name}' tree. Debug details: {debugDetails.ToString()}");
+            }
 
             if (p.IsCompressed)
                 ThrowOnCompressedPage(p);
@@ -698,6 +713,23 @@ namespace Voron.Data.BTrees
             return p;
         }
 
+
+        private static StringBuilder TryToGetMoreDetailsAboutPage(TreePage p)
+        {
+            var debugDetails = new StringBuilder();
+
+            try
+            {
+                debugDetails.Append($"Page info: {p.ToString()}. ");
+            }
+            catch
+            {
+
+            }
+
+            return debugDetails;
+        }
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int SetLastSearchPosition(Slice key, TreePage p, ref bool leftmostPage, ref bool rightmostPage)
         {
@@ -1095,7 +1127,7 @@ namespace Voron.Data.BTrees
             }
         }
 
-        public long GetParentPageOf(TreePage page)
+        public long GetParentPageOf(TreePage page, HashSet<long> pagesModified)
         {
             Debug.Assert(page.IsCompressed == false);
 
@@ -1110,8 +1142,31 @@ namespace Voron.Data.BTrees
                 {
                     if (page.PageNumber != p.PageNumber)
                     {
+                        if (pagesModified != null)
+                        {
+                            try
+                            {
+                                var tempPath = _llt.Environment.Options.TempPath;
+
+                                using (var debugInfo = File.Create(tempPath.Combine($"GetParentPageOf_Failure.{Guid.NewGuid()}").FullPath))
+                                using (var textWriter = new StreamWriter(debugInfo))
+                                {
+                                    foreach (var pageId in pagesModified)
+                                    {
+                                        textWriter.WriteLine(pageId.ToString());
+                                    }
+
+                                    textWriter.Flush();
+                                    debugInfo.Flush(true);
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+
                         VoronUnrecoverableErrorException.Raise(_tx.LowLevelTransaction,
-                            $"Got different leaf page when looking for a parent of {page} using the key '{key}' from that page. Page {p} was found, last match: {p.LastMatch}.");
+                            $"Got different leaf page when looking for a parent of {page} using the key '{key}' from that page. Page {p} was found, last match: {p.LastMatch}. Tee name: {Name}");
                     }
                     else if (p.LastMatch != 0)
                     {

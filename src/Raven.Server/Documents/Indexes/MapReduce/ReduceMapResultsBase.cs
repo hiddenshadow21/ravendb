@@ -298,7 +298,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
                             $"Encountered empty page which isn't a root. Page {leafPage} in '{tree.Name}' tree (tree state: {tree.State})");
                     }
 
-                    var parentPage = tree.GetParentPageOf(leafPage);
+                    var parentPage = tree.GetParentPageOf(leafPage, modifiedStore.ModifiedPages);
 
                     stats.RecordReduceAttempts(leafPage.NumberOfEntries);
 
@@ -361,7 +361,7 @@ namespace Raven.Server.Documents.Indexes.MapReduce
 
                         stats.RecordReduceAttempts(page.NumberOfEntries);
 
-                        var parentPage = tree.GetParentPageOf(page);
+                        var parentPage = tree.GetParentPageOf(page, modifiedStore.ModifiedPages);
 
                         using (var result = AggregateBranchPage(page, table, indexContext, branchesToAggregate, compressedEmptyLeafs, failedAggregatedLeafs, tree, token))
                         {
