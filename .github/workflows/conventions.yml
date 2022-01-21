@@ -1,0 +1,56 @@
+name: conventions
+
+on:
+  pull_request
+
+jobs:
+
+  job1:
+    name: Label
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Label
+        env:
+          githubOwner: ${{ github.event.pull_request.base.repo.owner.login }}
+          repoName: ${{ github.event.repository.name }}
+          newLabel: ${{ github.event.pull_request.base.ref }}
+          GITHUB_TOKEN: ${{ secrets.token }}
+          COMPlus_ReadyToRunExcludeList: 'System.Security.Cryptography.X509Certificates'
+          Raven_Enable_Per_Test_Logging: 'true'
+        if: contains(github.event.pull_request.labels.*.name, env.newLabel) == false
+        run: ./scripts/githubActions/set_github_label.ps1 -owner ${{env.githubOwner}} -repo ${{env.repoName}} -pullRequestId ${{ github.event.pull_request.number }} -label ${{env.newLabel}}
+
+  job2:
+    name: CLA Signed
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: CLA Signed test
+        env:
+          CLA_SIGNED_URL: http://api.web.ravendb.net/api/v1/contributors/cla/signed?pullRequestId=
+          ghprNumber: ${{ github.event.pull_request.number }}
+        if: github.event.pull_request.base.repo.owner.login == 'ravendb' && github.event.repository.name == 'ravendb'
+        run: echo "CLA"
+        #./scripts/githubActions/claSigned.ps1
+
+  job3:
+    name: Commit Conventions
+    runs-on: windows-latest
+    env:
+      githubOwner: ${{github.event.pull_request.base.repo.owner.login}}
+      repoName: ${{github.event.repository.name}}
+      label: ${{github.event.pull_request.base.ref}}
+      GITHUB_TOKEN: ${{ secrets.token }}
+      ghprNumber: ${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Commit Message Conventions
+        run: ./scripts/githubActions/commitMessageConventions.ps1
+
+      - name: Commit Whitespace Conventions
+        run: ./scripts/githubActions/commitWhitespaceConventions.ps1
+
+        
+
