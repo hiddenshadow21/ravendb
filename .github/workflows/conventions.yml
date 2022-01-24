@@ -31,12 +31,13 @@ jobs:
           CLA_SIGNED_URL: http://api.web.ravendb.net/api/v1/contributors/cla/signed?pullRequestId=
           ghprNumber: ${{ github.event.pull_request.number }}
         if: github.event.pull_request.base.repo.owner.login == 'ravendb' && github.event.repository.name == 'ravendb'
-        run: echo "CLA"
-        #./scripts/githubActions/claSigned.ps1
+        run: ./scripts/githubActions/claSigned.ps1
 
   job3:
     name: Commit Conventions
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
     env:
       githubOwner: ${{github.event.pull_request.base.repo.owner.login}}
       repoName: ${{github.event.repository.name}}
@@ -49,5 +50,50 @@ jobs:
       - name: Commit Message Conventions
         run: ./scripts/githubActions/commitMessageConventions.ps1
 
+      - name: Upload artifact status_message
+        if: always()
+        uses: actions/upload-artifact@v1
+        with:
+          name: pass_status_message
+          path: status_message.txt
+
       - name: Commit Whitespace Conventions
+        if: always()
         run: ./scripts/githubActions/commitWhitespaceConventions.ps1
+      
+      - name: Upload artifact status_whitespace
+        if: always()
+        uses: actions/upload-artifact@v1
+        with:
+          name: pass_status_whitespace
+          path: status_whitespace.txt
+
+  job4:
+    if: always()
+    needs: job3
+    name: Send status to Slack
+    runs-on: ubuntu-latest
+      
+    steps:
+      - uses: actions/checkout@v2
+      - name: Download artifacts 1
+        uses: actions/download-artifact@v1
+        with:
+          name: pass_status_message
+
+      - name: Download artifacts 2
+        uses: actions/download-artifact@v1
+        with:
+          name: pass_status_whitespace
+        
+      - name: Generate message
+        if: github.event.pull_request.base.repo.owner.login == 'ravendb' && github.event.repository.name == 'ravendb'
+        run: ./scripts/githubActions/ConventionsNotifySlack.sh
+        env:
+          PRLINK: ${{ github.event.pull_request.html_url }}
+          PRTAGRETBRANCH: ${{ github.event.pull_request.base.ref }}
+          PRNUMBER: ${{ github.event.pull_request.number }}
+          PRTITLE: ${{ github.event.pull_request.title }}
+          TOKEN: ${{ secrets.SLACK_TOKEN }}
+          CHANNEL: pull-requests
+

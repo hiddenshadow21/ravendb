@@ -95,5 +95,10 @@ while($TRUE)
 
 if ($allMatched -eq $FALSE)
 {
-    throw "Pull Request files contain tabs"
+    "false" | Out-File -FilePath status_whitespace.txt -NoNewline
+    throw "Files contain tabs"
+}
+else
+{
+    "true" | Out-File -FilePath status_whitespace.txt -NoNewline
 }

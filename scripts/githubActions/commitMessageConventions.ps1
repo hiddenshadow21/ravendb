@@ -40,5 +40,10 @@ Foreach ($commit in $allCommits)
 
 if ($allMatched -eq $FALSE)
 {
+    "false" | Out-File -FilePath status_message.txt -NoNewline
     throw "Not all commit messages contain issue #"
+}
+else
+{
+    "true" | Out-File -FilePath status_message.txt -NoNewline
 }
