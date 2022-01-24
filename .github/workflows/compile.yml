@@ -4,9 +4,8 @@ on:
   pull_request
 
 jobs:
-
   job1:
-    name: Server
+    name: Compile Server & Studio
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -17,31 +16,26 @@ jobs:
       - name: Setup .NET 5.0
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.x
+          dotnet-version: 5.0.x 
       - name: Setup .NET 6	
         uses: actions/setup-dotnet@v1
         with:
           dotnet-version: 6.0.x
       - name: Restore
-        run: dotnet restore
-      - name: Build
+        run: |
+          git clean -xfd
+          dotnet restore
+      - name: Build Server
         run: dotnet build
-
-  job2:
-    name: Studio
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
       - name: Setup nodejs
         uses: actions/setup-node@v2
         with:
           node-version: '10'
-      - name: Restore & Build
+      - name: Restore
         run: |
-          cd src/Raven.Studio
-          node -v
-          npm -v
           npm install
           npm run restore
-          npm run compile
-      
+        working-directory: src/Raven.Studio
+      - name: Compile Studio
+        run: npm run compile
+        working-directory: src/Raven.Studio
