@@ -51,6 +51,3 @@ jobs:
 
       - name: Commit Whitespace Conventions
         run: ./scripts/githubActions/commitWhitespaceConventions.ps1
-
-        
-
