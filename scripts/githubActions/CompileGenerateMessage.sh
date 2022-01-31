@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -x
 
 prefix_x='\u274C'
 prefix_check='\u2714'

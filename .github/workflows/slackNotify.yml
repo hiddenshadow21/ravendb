@@ -2,7 +2,7 @@ name: Send slack notification
 
 on:
   workflow_run:
-    workflows: ["compile", "conventions"]
+    workflows: [compile, conventions]
     types:
       - completed
 

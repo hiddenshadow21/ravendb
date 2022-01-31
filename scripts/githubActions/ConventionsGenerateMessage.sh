@@ -1,6 +1,5 @@
 #!/bin/bash
-
-set -x 
+ 
 
 function getStageSummary {
   message=$1
