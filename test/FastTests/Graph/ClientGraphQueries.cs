@@ -71,6 +71,8 @@ namespace FastTests.Graph
         [Fact]
         public void WaitForNonStaleResultsOnGraphQueriesWithClauseShouldWork()
         {
+            throw new InvalidOperationException("aaaaaaaaaaaaaaaaa");
+            
             using (var store = GetDocumentStore())
             {
                 var names = new[] {"Fi", "Fah", "Foozy"};

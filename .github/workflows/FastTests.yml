@@ -33,14 +33,32 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION_6 }}
 
     - name: Install dependencies
-      run: dotnet restore
+      run: |
+        dotnet tool install -g trx2junit
+        dotnet restore
 
     - name: Test - Release
-      run: dotnet test --configuration Release --no-restore
+      run: dotnet test --configuration Debug --no-restore --logger "trx;verbosity=detailed" --logger "console;verbosity=detailed" --results-directory "./"
       env: # Or as an environment variable
         RAVEN_LICENSE: ${{ secrets.RAVEN_LICENSE }}
         RAVEN_MAX_RUNNING_TESTS: 1
       working-directory: ./test/FastTests
+
+    - name: Convert tests
+      run: trx2junit ./*.trx
+      if: always()
+      working-directory: ./test/FastTests
+
+    - name: Publish Unit Test Results - Ubuntu
+      uses: EnricoMi/publish-unit-test-result-action@v1.35
+      if: ${{ always() && contains(matrix.os, 'ubuntu') }}
+      with:
+        files: "./test/FastTests/*.xml"
+    - name: Publish Unit Test Results - Windows
+      uses: EnricoMi/publish-unit-test-result-action/composite@v1.35
+      if: ${{ always() && contains(matrix.os, 'windows') }}
+      with:
+        files: "./test/FastTests/*.xml"
 
   debug:
     runs-on: ${{ matrix.os }}
@@ -61,11 +79,29 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION_6 }}
 
     - name: Install dependencies
-      run: dotnet restore
+      run: |
+        dotnet tool install -g trx2junit
+        dotnet restore
 
     - name: Test - Debug
-      run: dotnet test --configuration Debug --no-restore
+      run: dotnet test --configuration Debug --no-restore --logger "trx;verbosity=detailed" --logger "console;verbosity=detailed" --results-directory "./"
       env: # Or as an environment variable
         RAVEN_LICENSE: ${{ secrets.RAVEN_LICENSE }}
         RAVEN_MAX_RUNNING_TESTS: 1
       working-directory: ./test/FastTests
+
+    - name: Convert tests
+      run: trx2junit ./*.trx
+      if: always()
+      working-directory: ./test/FastTests
+
+    - name: Publish Unit Test Results - Ubuntu
+      uses: EnricoMi/publish-unit-test-result-action@v1.35
+      if: ${{ always() && contains(matrix.os, 'ubuntu') }}
+      with:
+        files: "./test/FastTests/*.xml"
+    - name: Publish Unit Test Results - Windows
+      uses: EnricoMi/publish-unit-test-result-action/composite@v1.35
+      if: ${{ always() && contains(matrix.os, 'windows') }}
+      with:
+        files: "./test/FastTests/*.xml"
