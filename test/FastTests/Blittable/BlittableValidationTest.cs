@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using FastTests.Blittable.BlittableJsonWriterTests;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -36,6 +37,14 @@ namespace FastTests.Blittable
             var reader = context.Sync.ReadForDisk(stream, "docs/1 ");
             size = reader.Size;
             return reader;
+        }
+
+        [Fact]
+        [Trait("test", "test")]
+        public void TEST()
+        {
+            Thread.Sleep(60000);
+            throw new InvalidOperationException("test");
         }
 
         [Fact]
