@@ -75,7 +75,7 @@ namespace Raven.Server.Background
                 if (e.InnerException is OperationCanceledException == false)
                 {
                     if (Logger.IsInfoEnabled)
-                        Logger.Info("Background worker of the notification center failed to stop", e);
+                        Logger.Info("Background workeraaaaaaaaaaaaaaaaaaaaa of the notification center failed to stop", e);
                 }
             }
 
