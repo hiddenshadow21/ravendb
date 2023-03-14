@@ -2,8 +2,8 @@ name: studio
 
 on:
   pull_request_target:
-    paths: 
-      - 'src/Raven.Studio/**/*'
+    paths-ignore: 
+      - '!src/Raven.Studio/**/*'
 
 jobs:
 
