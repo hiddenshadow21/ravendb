@@ -11,6 +11,8 @@ ARG DISTRO_VERSION
 
 RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y dos2unix devscripts dh-make wget gettext-base lintian curl debhelper
 
+RUN for i in /etc/ssl/certs/*.pem; do HASH=$(openssl x509 -hash -noout -in $i); if [ ! -f /etc/ssl/certs/$HASH.0 ]; then ln -s $(basename $i) /etc/ssl/certs/$HASH.0; fi; done
+
 RUN apt update \ 
     && apt-get -y dist-upgrade \
     && apt install -y curl wget apt-transport-https 
