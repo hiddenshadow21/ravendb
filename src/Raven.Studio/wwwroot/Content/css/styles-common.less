@@ -2016,7 +2016,7 @@ ul.properties {
 }
 
 .no-padding-left {
-    padding-left: 0px;
+    padding-left: 0px!important;
 }
 
 .no-padding-right {
@@ -2108,6 +2108,47 @@ ul.properties {
 
 .flex-gap-gutter-xs {
     gap: @gutter-xs;
+}
+
+.justify-content-center {
+    justify-content: center;
+}
+
+.justify-content-between {
+    justify-content: space-between;
+}
+
+.align-items-start {
+    align-items: start;
+}
+
+.align-items-center {
+    align-items: center;
+}
+
+.w-100 {
+    width: 100%;
+}
+
+.item-disabled {
+    filter: contrast(75%) brightness(0.75);
+    mix-blend-mode: luminosity;
+}
+
+.break-spaces {
+    white-space: break-spaces;
+}
+
+.m-0 {
+    margin: 0!important;
+}
+
+.gap-3 {
+    gap: @gutter-sm;
+}
+
+.gap-4 {
+    gap: @gutter;
 }
 
 @import "prism.less";

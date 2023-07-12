@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using Corax.Mappings;
 
@@ -70,9 +71,7 @@ namespace Corax.Queries
 
             public FieldMetadata Field => throw new NotSupportedException();
 
-            public int CompareById(long idx, long idy) { throw new NotSupportedException(); }
-
-            public int CompareNumerical<T>(T sx, T sy) where T : unmanaged { throw new NotSupportedException(); }
+            public int CompareNumerical<T>(T sx, T sy) where T : unmanaged, INumber<T> { throw new NotSupportedException(); }
 
             public int CompareSequence(ReadOnlySpan<byte> sx, ReadOnlySpan<byte> sy) { throw new NotSupportedException(); }
         }

@@ -17,6 +17,7 @@ using Raven.Client.ServerWide.Operations;
 using Raven.Server.Config;
 using Raven.Server.Json;
 using Raven.Server.Routing;
+using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.Smuggler.Documents;
 using Raven.Server.Smuggler.Documents.Data;
@@ -325,7 +326,7 @@ namespace Raven.Server.Documents.Handlers.Admin
             }
 
             var operationId = Database.Operations.GetNextOperationId();
-            var token = CreateTimeLimitedQueryOperationToken();
+            var token = CreateTimeLimitedBackgroundOperationTokenForQueryOperation();
 
             _ = Database.Operations.AddOperation(
                 Database,
@@ -392,8 +393,8 @@ namespace Raven.Server.Documents.Handlers.Admin
                 var index = Database.IndexStore.GetIndex(name);
                 if (index == null)
                     IndexDoesNotExistException.ThrowFor(name);
-                
-                var token = CreateOperationToken();
+
+                var token = CreateBackgroundOperationToken();
                 var result = new IndexOptimizeResult(index.Name);
                 var operationId = Database.Operations.GetNextOperationId();
                 var t = Database.Operations.AddOperation(

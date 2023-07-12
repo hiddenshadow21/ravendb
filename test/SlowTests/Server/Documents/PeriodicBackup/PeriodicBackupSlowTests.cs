@@ -47,6 +47,7 @@ using Tests.Infrastructure.Entities;
 using Voron.Data.Tables;
 using Xunit;
 using Xunit.Abstractions;
+using static Raven.Server.Utils.BackupUtils;
 
 namespace SlowTests.Server.Documents.PeriodicBackup
 {
@@ -2878,6 +2879,65 @@ namespace SlowTests.Server.Documents.PeriodicBackup
             }
         }
 
+                        // Performing backup Delay to the time:
+        [InlineData(1)] // until the next scheduled backup time.
+        [InlineData(5)] // after the next scheduled backup.
+        [Theory, Trait("Category", "Smuggler")]
+        public async Task ShouldProperlyPlaceOriginalBackupTimePropertyWithDelay(int delayDurationInMinutes)
+        {
+            const string fullBackupFrequency = "*/2 * * * *";
+            var backupPath = NewDataPath(suffix: "BackupFolder");
+
+            using (var server = GetNewServer())
+            using (var store = GetDocumentStore(new Options { Server = server }))
+            {
+                using (var session = store.OpenAsyncSession())
+                    await Backup.FillDatabaseWithRandomDataAsync(databaseSizeInMb: 1, session);
+
+                var database = await server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store.Database).ConfigureAwait(false);
+                Assert.NotNull(database);
+                database.PeriodicBackupRunner.ForTestingPurposesOnly().OnBackupTaskRunHoldBackupExecution = new TaskCompletionSource<object>();
+
+                var config = Backup.CreateBackupConfiguration(backupPath, fullBackupFrequency: fullBackupFrequency);
+                var taskId = await Backup.UpdateConfigAndRunBackupAsync(server, config, store, opStatus: OperationStatus.InProgress);
+                
+                // Let's delay the backup task
+                var taskBackupInfo = await store.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+                Assert.NotNull(taskBackupInfo);
+                Assert.NotNull(taskBackupInfo.OnGoingBackup);
+                Assert.NotNull(taskBackupInfo.OnGoingBackup.StartTime);
+
+                var delayDuration = TimeSpan.FromMinutes(delayDurationInMinutes);
+                var delayUntil = DateTime.Now + delayDuration;
+                await store.Maintenance.SendAsync(new DelayBackupOperation(taskBackupInfo.OnGoingBackup.RunningBackupTaskId, delayDuration));
+
+                // There should be no OnGoingBackup operation in the OngoingTaskBackup
+                await WaitForValueAsync(async () =>
+                {
+                    var afterDelayTaskBackupInfo = await store.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+                    return afterDelayTaskBackupInfo is { OnGoingBackup: null };
+                }, true);
+
+                var backupStatus = (await store.Maintenance.SendAsync(new GetPeriodicBackupStatusOperation(taskId))).Status;
+                Assert.NotNull(backupStatus);
+                Assert.NotNull(backupStatus.DelayUntil);
+                Assert.NotNull(backupStatus.OriginalBackupTime);
+
+                var nextFullBackup = GetNextBackupOccurrence(new NextBackupOccurrenceParameters
+                {
+                    BackupFrequency = fullBackupFrequency,
+                    Configuration = config,
+                    LastBackupUtc = taskBackupInfo.OnGoingBackup.StartTime.Value
+                });
+                Assert.NotNull(nextFullBackup);
+
+                Assert.Equal(backupStatus.OriginalBackupTime,
+                    delayUntil < nextFullBackup 
+                        ? taskBackupInfo.OnGoingBackup.StartTime    // until the next scheduled backup time.
+                        : nextFullBackup.Value.ToUniversalTime());  // after the next scheduled backup.
+            }
+        }
+
         [Fact, Trait("Category", "Smuggler")]
         public async Task CanDelayBackupTask()
         {
@@ -2960,6 +3020,11 @@ namespace SlowTests.Server.Documents.PeriodicBackup
                 Assert.NotNull(responsibleDatabase);
                 responsibleDatabase.PeriodicBackupRunner.ForTestingPurposesOnly().OnBackupTaskRunHoldBackupExecution = new TaskCompletionSource<object>();
 
+                var now = DateTime.UtcNow;
+                var expectedNextBackupDateTime = now.Date
+                    .AddHours(now.Hour)
+                    .AddMinutes(now.Minute + 1);
+
                 await Backup.RunBackupInClusterAsync(leaderStore, taskId, opStatus: OperationStatus.InProgress);
 
                 // Just to be sure, the DelayUntil value was not set before the task delaying
@@ -2968,18 +3033,27 @@ namespace SlowTests.Server.Documents.PeriodicBackup
                 Assert.Null(backupStatus.DelayUntil);
 
                 // The backup task is running on the mentor node, and the next backup should be scheduled for the next minute (based on the backup configuration) without any errors
-                var onGoingTaskInfo = await leaderStore.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+                OngoingTaskBackup onGoingTaskInfo = null;
+                await WaitForValueAsync(async () =>
+                {
+                    onGoingTaskInfo = await leaderStore.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+
+                    return onGoingTaskInfo != null &&
+                           leaderServer.ServerStore.NodeTag == onGoingTaskInfo.MentorNode &&
+                           onGoingTaskInfo.Error == null &&
+                           expectedNextBackupDateTime == onGoingTaskInfo.NextBackup.DateTime &&
+                           onGoingTaskInfo.OnGoingBackup != null &&
+                           onGoingTaskInfo.TaskConnectionStatus == OngoingTaskConnectionStatus.Active;
+                }, expectedVal: true,
+                    timeout: (int)TimeSpan.FromMinutes(5).TotalMilliseconds,
+                    interval: (int)TimeSpan.FromSeconds(1).TotalMilliseconds);
+
                 Assert.NotNull(onGoingTaskInfo);
-                Assert.Equal(leaderServer.ServerStore.NodeTag, onGoingTaskInfo.MentorNode);
-                Assert.Null(onGoingTaskInfo.Error);
-
-                var expectedNextBackupDateTime = DateTime.UtcNow.Date
-                    .AddHours(DateTime.UtcNow.Hour)
-                    .AddMinutes(DateTime.UtcNow.Minute + 1);
-                Assert.Equal(expectedNextBackupDateTime, onGoingTaskInfo.NextBackup.DateTime);
-
+                Assert.True(leaderServer.ServerStore.NodeTag == onGoingTaskInfo.MentorNode, userMessage: $"The value of 'leaderServer.ServerStore.NodeTag': {leaderServer.ServerStore.NodeTag} is not equal to 'onGoingTaskInfo.MentorNode': {onGoingTaskInfo.MentorNode}.");
+                Assert.True(onGoingTaskInfo.Error == null, userMessage: $"The onGoingTaskInfo.Error is not null: {onGoingTaskInfo.Error}.");
+                Assert.True(expectedNextBackupDateTime == onGoingTaskInfo.NextBackup.DateTime, userMessage: $"The 'expectedNextBackupDateTime': {expectedNextBackupDateTime} is not equal to 'onGoingTaskInfo.NextBackup.DateTime': {onGoingTaskInfo.NextBackup.DateTime}.");
                 Assert.NotNull(onGoingTaskInfo.OnGoingBackup);
-                Assert.Equal(OngoingTaskConnectionStatus.Active, onGoingTaskInfo.TaskConnectionStatus);
+                Assert.True(onGoingTaskInfo.TaskConnectionStatus == OngoingTaskConnectionStatus.Active, userMessage: $"The onGoingTaskInfo.TaskConnectionStatus is {onGoingTaskInfo.TaskConnectionStatus}, which is not {nameof(OngoingTaskConnectionStatus.Active)} as expected.");
 
                 // Let's delay the backup task to 1 hour
                 var delayDuration = TimeSpan.FromHours(1);
@@ -2988,16 +3062,35 @@ namespace SlowTests.Server.Documents.PeriodicBackup
                 await leaderStore.Maintenance.SendAsync(new DelayBackupOperation(runningBackupTaskId, delayDuration));
 
                 // The next backup should be scheduled in almost 1 hour on the current periodic backup task
-                var periodicBackup = responsibleDatabase.PeriodicBackupRunner.PeriodicBackups.Single(x => x.BackupStatus.TaskId == taskId);
+                Raven.Server.Documents.PeriodicBackup.PeriodicBackup periodicBackup = null;
+                TimeSpan nextBackup = default;
+                WaitForValue(() =>
+                {
+                    periodicBackup = responsibleDatabase.PeriodicBackupRunner.PeriodicBackups.Single(x => x.BackupStatus.TaskId == taskId);
+                    nextBackup = periodicBackup.GetNextBackup().TimeSpan;
+
+                    return periodicBackup is { RunningTask: null, RunningBackupStatus: null } &&
+                           nextBackup > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) && nextBackup <= delayDuration;
+                }, expectedVal: true,
+                    timeout: (int)TimeSpan.FromMinutes(5).TotalMilliseconds,
+                    interval: (int)TimeSpan.FromSeconds(1).TotalMilliseconds);
+
                 Assert.NotNull(periodicBackup);
                 Assert.Null(periodicBackup.RunningTask);
                 Assert.Null(periodicBackup.RunningBackupStatus);
-                var nextBackup = periodicBackup.GetNextBackup().TimeSpan;
-                Assert.True(nextBackup > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) && nextBackup <= delayDuration, 
-                    $"NextBackup in: `{nextBackup}`, delayDuration with tolerance: `{delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000))}`, " +
-                    $"delayDuration: `{delayDuration}`");
+                Assert.True(nextBackup > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) && nextBackup <= delayDuration,
+                    $"The NextBackup is set for: {nextBackup}, the delay duration with tolerance is: {delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000))}, and the actual delay duration is: {delayDuration}.");
 
-                onGoingTaskInfo = await leaderStore.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+                await WaitForValueAsync(async () =>
+                {
+                    onGoingTaskInfo = await leaderStore.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+
+                    return onGoingTaskInfo != null &&
+                           onGoingTaskInfo.ResponsibleNode.NodeTag == leaderServer.ServerStore.NodeTag;
+                }, expectedVal: true,
+                    timeout: (int)TimeSpan.FromMinutes(5).TotalMilliseconds,
+                    interval: (int)TimeSpan.FromSeconds(1).TotalMilliseconds);
+
                 Assert.NotNull(onGoingTaskInfo);
                 Assert.Equal(onGoingTaskInfo.ResponsibleNode.NodeTag, leaderServer.ServerStore.NodeTag);
 
@@ -3065,30 +3158,43 @@ namespace SlowTests.Server.Documents.PeriodicBackup
         private static async Task AssertNextBackupSchedule(RavenServer serverToObserve, TimeSpan delayDuration, string databaseName, long taskId, Stopwatch sw)
         {
             using (var store = new DocumentStore
-                   {
-                       Urls = new[] { serverToObserve.WebUrl }, 
-                       Conventions = new DocumentConventions { DisableTopologyUpdates = true }, 
-                       Database = databaseName
-                   })
+            {
+                Urls = new[] { serverToObserve.WebUrl },
+                Conventions = new DocumentConventions { DisableTopologyUpdates = true },
+                Database = databaseName
+            })
             {
                 store.Initialize();
 
                 OngoingTaskBackup onGoingTaskBackup = null;
+                PeriodicBackupStatus backupStatus = null;
                 await WaitForValueAsync(async () =>
                 {
                     onGoingTaskBackup = await store.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
-                    return onGoingTaskBackup is { OnGoingBackup: null } &&
-                           onGoingTaskBackup.NextBackup.TimeSpan > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) &&
-                           onGoingTaskBackup.NextBackup.TimeSpan <= delayDuration;
-                }, true);
+
+                    if (onGoingTaskBackup?.NextBackup == null ||
+                        onGoingTaskBackup.OnGoingBackup != null ||
+                        (onGoingTaskBackup.NextBackup.TimeSpan > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) &&
+                        onGoingTaskBackup.NextBackup.TimeSpan <= delayDuration) == false)
+                        return false;
+
+                    backupStatus = (await store.Maintenance.SendAsync(new GetPeriodicBackupStatusOperation(onGoingTaskBackup.TaskId))).Status;
+                    return backupStatus is { DelayUntil: { } } &&
+                           backupStatus.DelayUntil == onGoingTaskBackup.NextBackup.DateTime;
+                }, true,
+                    timeout: (int)TimeSpan.FromMinutes(5).TotalMilliseconds,
+                    interval: (int)TimeSpan.FromSeconds(1).TotalMilliseconds);
+
                 Assert.NotNull(onGoingTaskBackup.NextBackup);
-                Assert.NotEqual(onGoingTaskBackup.ResponsibleNode.NodeTag, serverToObserve.ServerStore.NodeTag);
+                Assert.Null(onGoingTaskBackup.OnGoingBackup);
+                Assert.True(onGoingTaskBackup.ResponsibleNode.NodeTag != serverToObserve.ServerStore.NodeTag, userMessage: $"The strings 'onGoingTaskBackup.ResponsibleNode.NodeTag' and 'serverToObserve.ServerStore.NodeTag' are equal, with the value '{onGoingTaskBackup.ResponsibleNode.NodeTag}', but they should be different.");
+                Assert.True(onGoingTaskBackup.NextBackup.TimeSpan > delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000)) && onGoingTaskBackup.NextBackup.TimeSpan <= delayDuration,
+                    $"The NextBackup is set for: {onGoingTaskBackup.NextBackup.TimeSpan}, the delay duration with tolerance is: {delayDuration.Subtract(TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds + 1_000))}, and the actual delay duration is: {delayDuration}.");
 
                 // DelayUntil value in backup status and the time of scheduled next backup should be equal
-                var backupStatus = (await store.Maintenance.SendAsync(new GetPeriodicBackupStatusOperation(onGoingTaskBackup.TaskId))).Status;
                 Assert.NotNull(backupStatus);
                 Assert.NotNull(backupStatus.DelayUntil);
-                Assert.Equal(backupStatus.DelayUntil, onGoingTaskBackup.NextBackup.DateTime);
+                Assert.True(backupStatus.DelayUntil == onGoingTaskBackup.NextBackup.DateTime, userMessage: $"The value of 'backupStatus.DelayUntil' is {backupStatus.DelayUntil}, whereas the value of 'onGoingTaskBackup.NextBackup.DateTime' is {onGoingTaskBackup.NextBackup.DateTime}. They are not equal, but they should be.");
             }
         }
 
@@ -3221,6 +3327,52 @@ namespace SlowTests.Server.Documents.PeriodicBackup
             }
         }
 
+        [Fact, Trait("Category", "Smuggler")]
+        public async Task NumberOfCurrentlyRunningBackupsShouldBeCorrectAfterBackupTaskDelay()
+        {
+            var backupPath = NewDataPath(suffix: "BackupFolder");
+            
+            using (var store = GetDocumentStore())
+            {
+                using (var session = store.OpenAsyncSession())
+                    await Backup.FillDatabaseWithRandomDataAsync(databaseSizeInMb: 1, session);
+
+                var database = await Server.ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(store.Database).ConfigureAwait(false);
+                Assert.NotNull(database);
+                database.PeriodicBackupRunner.ForTestingPurposesOnly().OnBackupTaskRunHoldBackupExecution = new TaskCompletionSource<object>();
+
+                var config = Backup.CreateBackupConfiguration(backupPath, fullBackupFrequency: "* * * * *");
+                var taskId = await Backup.UpdateConfigAndRunBackupAsync(Server, config, store, opStatus: OperationStatus.InProgress);
+
+                // The backup task is running, and the next backup should be scheduled for the next minute (based on the backup configuration)
+                var taskBackupInfo = await store.Maintenance.SendAsync(new GetOngoingTaskInfoOperation(taskId, OngoingTaskType.Backup)) as OngoingTaskBackup;
+                Assert.NotNull(taskBackupInfo);
+                Assert.NotNull(taskBackupInfo.OnGoingBackup);
+
+                using (Server.ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
+                using (context.OpenReadTransaction())
+                {
+                    AssertNumberOfConcurrentBackups(expectedNumber: 1);
+                    
+                    // Let's delay the backup task to 1 hour
+                    var delayDuration = TimeSpan.FromHours(1);
+                    await store.Maintenance.SendAsync(new DelayBackupOperation(taskBackupInfo.OnGoingBackup.RunningBackupTaskId, delayDuration));
+
+                    AssertNumberOfConcurrentBackups(expectedNumber: 0);
+
+                    void AssertNumberOfConcurrentBackups(int expectedNumber)
+                    {
+                        int concurrentBackups = WaitForValue( () => Server.ServerStore.ConcurrentBackupsCounter.CurrentNumberOfRunningBackups,
+                            expectedVal: expectedNumber,
+                            timeout: Convert.ToInt32(TimeSpan.FromMinutes(1).TotalMilliseconds),
+                            interval: Convert.ToInt32(TimeSpan.FromSeconds(1).TotalMilliseconds));
+
+                        Assert.Equal(expectedNumber, concurrentBackups);
+                    }
+                }
+            }
+        }
+        
         [Fact, Trait("Category", "Smuggler")]
         public async Task ShouldRearrangeTheBackupTimer_IfItGot_ActiveByOtherNode_Then_ActiveByCurrentNode_WhileRunning()
         {

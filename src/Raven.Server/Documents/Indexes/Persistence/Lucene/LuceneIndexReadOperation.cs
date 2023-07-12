@@ -54,6 +54,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
         private readonly int _maxNumberOfOutputsPerDocument;
 
         private readonly IState _state;
+        private readonly IDisposable _readLock;
 
         private FastVectorHighlighter _highlighter;
         private FieldQuery _highlighterQuery;
@@ -81,6 +82,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
             _indexHasBoostedFields = index.HasBoostedFields;
             _releaseReadTransaction = directory.SetTransaction(readTransaction, out _state);
             _releaseSearcher = searcherHolder.GetSearcher(readTransaction, _state, out _searcher);
+            _readLock = _luceneCleaner.EnterRunningQueryReadLock();
         }
 
         public override long EntriesCount()
@@ -165,7 +167,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
                             document = _searcher.Doc(scoreDoc.Doc, _state);
 
                         var retrieverInput = new RetrieverInput(document, scoreDoc, _state);
-                        if (retriever.TryGetKey(ref retrieverInput, out string key) && scope.WillProbablyIncludeInResults(key) == false)
+                        if (retriever.TryGetKeyLucene(ref retrieverInput, out string key) && scope.WillProbablyIncludeInResults(key) == false)
                         {
                             // If either there is no valid projection or we have already seen this document before, we are skipping. 
                             skippedResults.Value++;
@@ -465,7 +467,7 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
                     var document = _searcher.Doc(indexResult.LuceneId, _state);
 
                     var retrieverInput = new RetrieverInput(document, new ScoreDoc(indexResult.LuceneId, indexResult.Score), _state);
-                    if (retriever.TryGetKey(ref retrieverInput, out string key) && scope.WillProbablyIncludeInResults(key) == false)
+                    if (retriever.TryGetKeyLucene(ref retrieverInput, out string key) && scope.WillProbablyIncludeInResults(key) == false)
                     {
                         skippedResults.Value++;
                         skippedResultsInCurrentLoop++;
@@ -968,10 +970,13 @@ namespace Raven.Server.Documents.Indexes.Persistence.Lucene
 
         public override void Dispose()
         {
-            base.Dispose();
-            _analyzer?.Dispose();
-            _releaseSearcher?.Dispose();
-            _releaseReadTransaction?.Dispose();
+            using (_readLock)
+            {
+                base.Dispose();
+                _analyzer?.Dispose();
+                _releaseSearcher?.Dispose();
+                _releaseReadTransaction?.Dispose();
+            }
         }
     }
 }

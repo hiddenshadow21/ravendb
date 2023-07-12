@@ -20,7 +20,7 @@ public class CoraxDocumentConverter : CoraxDocumentConverterBase
         string keyFieldName = null,
         bool storeValue = false,
         string storeValueFieldName = Constants.Documents.Indexing.Fields.ReduceKeyValueFieldName) :
-        base(index, storeValue, indexImplicitNull, indexEmptyEntries, 1, keyFieldName, storeValueFieldName)
+        base(index, storeValue, indexImplicitNull, indexEmptyEntries, 1, keyFieldName, storeValueFieldName, canContainSourceDocumentId: false)
     {
     }
 
@@ -68,11 +68,11 @@ public class CoraxDocumentConverter : CoraxDocumentConverterBase
                             throw new ArgumentOutOfRangeException($"{spatialOptions.MethodType} is not implemented.");
                     }
 
-                    InsertRegularField(indexField, value, indexContext, ref entryWriter, scope);
+                    InsertRegularField(indexField, value, indexContext, ref entryWriter, scope, out var _);
                 }
                 else if (BlittableJsonTraverserHelper.TryRead(_blittableTraverser, document, indexField.OriginalName ?? indexField.Name, out value))
                 {
-                    InsertRegularField(indexField, value, indexContext, ref entryWriter, scope);
+                    InsertRegularField(indexField, value, indexContext, ref entryWriter, scope, out var _);
                 }
             }
 

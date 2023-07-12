@@ -293,7 +293,7 @@ namespace Raven.Server.Documents.ETL
                     continue;
 
                 var processState = GetProcessState(config.Transforms, _database, config.Name);
-                var whoseTaskIsIt = _database.WhoseTaskIsIt(_databaseRecord.Topology, config, processState);
+                var whoseTaskIsIt = BackupUtils.WhoseTaskIsIt(_serverStore, _databaseRecord.Topology, config, processState, _database.NotificationCenter);
                 if (whoseTaskIsIt != _serverStore.NodeTag)
                     continue;
 
@@ -461,7 +461,7 @@ namespace Raven.Server.Documents.ETL
             where T : EtlConfiguration<TConnectionString>
         {
             var processState = GetProcessState(etlTask.Transforms, _database, etlTask.Name);
-            var whoseTaskIsIt = _database.WhoseTaskIsIt(record.Topology, etlTask, processState);
+            var whoseTaskIsIt = BackupUtils.WhoseTaskIsIt(_serverStore, record.Topology, etlTask, processState, _database.NotificationCenter);
 
             responsibleNodes[etlTask.Name] = whoseTaskIsIt;
 
@@ -846,6 +846,39 @@ namespace Raven.Server.Documents.ETL
                     MarkDocumentTombstonesForDeletion(config, lastProcessedTombstones);
             }
             return lastProcessedTombstones;
+        }
+
+        public Dictionary<string, HashSet<string>> GetDisabledSubscribersCollections(HashSet<string> tombstoneCollections)
+        {
+            var dict = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (ElasticSearchEtlConfiguration config in ElasticSearchDestinations)
+            {
+                if (config.Disabled)
+                    dict[config.Name] = tombstoneCollections;
+            }
+            foreach (OlapEtlConfiguration config in OlapDestinations)
+            {
+                if (config.Disabled)
+                    dict[config.Name] = tombstoneCollections;
+            }
+            foreach (QueueEtlConfiguration config in QueueDestinations)
+            {
+                if (config.Disabled)
+                    dict[config.Name] = tombstoneCollections;
+            }
+
+            foreach (RavenEtlConfiguration config in RavenDestinations)
+            {
+                if (config.Disabled)
+                    dict[config.Name] = tombstoneCollections;
+            }
+            foreach (SqlEtlConfiguration config in SqlDestinations)
+            {
+                if (config.Disabled)
+                    dict[config.Name] = tombstoneCollections;
+            }
+
+            return dict;
         }
 
         private void MarkDocumentTombstonesForDeletion<T>(EtlConfiguration<T> config, Dictionary<string, long> lastProcessedTombstones) where T : ConnectionString

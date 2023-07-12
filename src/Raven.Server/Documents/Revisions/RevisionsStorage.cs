@@ -438,7 +438,7 @@ namespace Raven.Server.Documents.Revisions
                 if (flags.Contain(DocumentFlags.HasAttachments) &&
                     flags.Contain(DocumentFlags.Revision) == false)
                 {
-                    _documentsStorage.AttachmentsStorage.RevisionAttachments(context, lowerId, changeVectorSlice);
+                    _documentsStorage.AttachmentsStorage.RevisionAttachments(context, document, lowerId, changeVectorSlice);
                 }
 
                 document = AddCounterAndTimeSeriesSnapshotsIfNeeded(context, id, document);
@@ -449,6 +449,9 @@ namespace Raven.Server.Documents.Revisions
                     return true;
 
                 flags |= DocumentFlags.Revision;
+                if (nonPersistentFlags.Contain(NonPersistentDocumentFlags.ForceRevisionCreation))
+                    flags |= DocumentFlags.ForceCreated;
+
                 var etag = _database.DocumentsStorage.GenerateNextEtag();
                 var newEtagSwapBytes = Bits.SwapBytes(etag);
 
@@ -1850,7 +1853,7 @@ namespace Raven.Server.Documents.Revisions
             }
         }
 
-        public IEnumerable<Document> GetRevisionsFrom(DocumentsOperationContext context, long etag, long take)
+        public IEnumerable<Document> GetRevisionsFrom(DocumentsOperationContext context, long etag, long take, DocumentFields fields = DocumentFields.All)
         {
             var table = new Table(RevisionsSchema, context.Transaction.InnerTransaction);
 
@@ -1859,12 +1862,12 @@ namespace Raven.Server.Documents.Revisions
                 if (take-- <= 0)
                     yield break;
 
-                var document = TableValueToRevision(context, ref tvr.Reader);
+                var document = TableValueToRevision(context, ref tvr.Reader, fields);
                 yield return document;
             }
         }
 
-        public IEnumerable<Document> GetRevisionsFrom(DocumentsOperationContext context, string collection, long etag, long take)
+        public IEnumerable<Document> GetRevisionsFrom(DocumentsOperationContext context, string collection, long etag, long take, DocumentFields fields = DocumentFields.All)
         {
             var collectionName = _documentsStorage.GetCollection(collection, throwIfDoesNotExist: false);
             if (collectionName == null)
@@ -1880,7 +1883,7 @@ namespace Raven.Server.Documents.Revisions
                 if (take-- <= 0)
                     yield break;
 
-                var document = TableValueToRevision(context, ref tvr.Reader);
+                var document = TableValueToRevision(context, ref tvr.Reader, fields);
                 yield return document;
             }
         }
@@ -1980,28 +1983,50 @@ namespace Raven.Server.Documents.Revisions
             }
         }
 
-        private static unsafe Document TableValueToRevision(JsonOperationContext context, ref TableValueReader tvr)
+        private static unsafe Document TableValueToRevision(JsonOperationContext context, ref TableValueReader tvr, DocumentFields fields = DocumentFields.All)
         {
-            var result = new Document
+            if (fields == DocumentFields.All)
             {
-                StorageId = tvr.Id,
-                LowerId = TableValueToString(context, (int)RevisionsTable.LowerId, ref tvr),
-                Id = TableValueToId(context, (int)RevisionsTable.Id, ref tvr),
-                Etag = TableValueToEtag((int)RevisionsTable.Etag, ref tvr),
-                LastModified = TableValueToDateTime((int)RevisionsTable.LastModified, ref tvr),
-                Flags = TableValueToFlags((int)RevisionsTable.Flags, ref tvr),
-                TransactionMarker = *(short*)tvr.Read((int)RevisionsTable.TransactionMarker, out int size),
-                ChangeVector = TableValueToChangeVector(context, (int)RevisionsTable.ChangeVector, ref tvr),
-                Data = TableValueToData(context, ref tvr)
-            };
+                return new Document
+                {
+                    StorageId = tvr.Id,
+                    LowerId = TableValueToString(context, (int)RevisionsTable.LowerId, ref tvr),
+                    Id = TableValueToId(context, (int)RevisionsTable.Id, ref tvr),
+                    Etag = TableValueToEtag((int)RevisionsTable.Etag, ref tvr),
+                    LastModified = TableValueToDateTime((int)RevisionsTable.LastModified, ref tvr),
+                    Flags = TableValueToFlags((int)RevisionsTable.Flags, ref tvr),
+                    TransactionMarker = TableValueToShort((int)RevisionsTable.TransactionMarker, nameof(RevisionsTable.TransactionMarker), ref tvr),
+                    ChangeVector = TableValueToChangeVector(context, (int)RevisionsTable.ChangeVector, ref tvr),
+                    Data = new BlittableJsonReaderObject(tvr.Read((int)RevisionsTable.Document, out var size), size, context)
+                };
+            }
 
-            return result;
+            return ParseRevisionPartial(context, ref tvr, fields);
         }
 
-        private static unsafe BlittableJsonReaderObject TableValueToData(JsonOperationContext context, ref TableValueReader tvr)
+        private static unsafe Document ParseRevisionPartial(JsonOperationContext context, ref TableValueReader tvr, DocumentFields fields)
         {
-            var ptr = tvr.Read((int)RevisionsTable.Document, out var size);
-            return new BlittableJsonReaderObject(ptr, size, context);
+            var result = new Document();
+
+            if (fields.Contain(DocumentFields.LowerId))
+                result.LowerId = TableValueToString(context, (int)RevisionsTable.LowerId, ref tvr);
+
+            if (fields.Contain(DocumentFields.Id))
+                result.Id = TableValueToId(context, (int)RevisionsTable.Id, ref tvr);
+
+            if (fields.Contain(DocumentFields.Data))
+                result.Data = new BlittableJsonReaderObject(tvr.Read((int)RevisionsTable.Document, out var size), size, context);
+
+            if (fields.Contain(DocumentFields.ChangeVector))
+                result.ChangeVector = TableValueToChangeVector(context, (int)RevisionsTable.ChangeVector, ref tvr);
+
+            result.Etag = TableValueToEtag((int)RevisionsTable.Etag, ref tvr);
+            result.LastModified = TableValueToDateTime((int)RevisionsTable.LastModified, ref tvr);
+            result.Flags = TableValueToFlags((int)RevisionsTable.Flags, ref tvr);
+            result.StorageId = tvr.Id;
+            result.TransactionMarker = TableValueToShort((int)RevisionsTable.TransactionMarker, nameof(RevisionsTable.TransactionMarker), ref tvr);
+
+            return result;
         }
 
         public static unsafe Document ParseRawDataSectionRevisionWithValidation(JsonOperationContext context, ref TableValueReader tvr, int expectedSize, out long etag)

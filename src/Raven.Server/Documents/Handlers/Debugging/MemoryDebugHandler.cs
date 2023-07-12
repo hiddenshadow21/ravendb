@@ -6,7 +6,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using MySqlX.XDevAPI;
 using Raven.Server.Routing;
 using Raven.Server.Utils;
 using Raven.Server.Web;
@@ -24,7 +23,7 @@ using Size = Raven.Client.Util.Size;
 
 namespace Raven.Server.Documents.Handlers.Debugging
 {
-    public class MemoryDebugHandler : RequestHandler
+    public class MemoryDebugHandler : ServerRequestHandler
     {
         [RavenAction("/admin/debug/memory/gc", "GET", AuthorizationStatus.Operator, IsDebugInformationEndpoint = true)]
         public async Task GcInfo()
@@ -55,17 +54,27 @@ namespace Raven.Server.Documents.Handlers.Debugging
                     [nameof(info.FragmentedBytes)] = info.FragmentedBytes,
                     ["FragmentedHumane"] = Size.Humane(info.FragmentedBytes),
                     [nameof(info.Generation)] = info.Generation,
-                    [nameof(info.GenerationInfo)] = new DynamicJsonArray(info.GenerationInfo.ToArray().Select(x => new DynamicJsonValue
-                    {
-                        [nameof(x.FragmentationAfterBytes)] = x.FragmentationAfterBytes,
-                        ["FragmentationAfterHumane"] = Size.Humane(x.FragmentationAfterBytes),
-                        [nameof(x.FragmentationBeforeBytes)] = x.FragmentationBeforeBytes,
-                        ["FragmentationBeforeHumane"] = Size.Humane(x.FragmentationBeforeBytes),
-                        [nameof(x.SizeAfterBytes)] = x.SizeAfterBytes,
-                        ["SizeAfterHumane"] = Size.Humane(x.SizeAfterBytes),
-                        [nameof(x.SizeBeforeBytes)] = x.SizeBeforeBytes,
-                        ["SizeBeforeHumane"] = Size.Humane(x.SizeBeforeBytes)
-                    })),
+                    [nameof(info.GenerationInfo)] = new DynamicJsonArray(
+                        info.GenerationInfo.ToArray().Select((x, index) => new DynamicJsonValue
+                        {
+                            ["GenerationName"] = index switch
+                                {
+                                    0 => "Heap Generation 0",
+                                    1 => "Heap Generation 1",
+                                    2 => "Heap Generation 2",
+                                    3 => "Large Object Heap",
+                                    4 => "Pinned Object Heap",
+                                    _ => "Unknown Generation"
+                                },
+                            [nameof(x.FragmentationAfterBytes)] = x.FragmentationAfterBytes,
+                            ["FragmentationAfterHumane"] = Size.Humane(x.FragmentationAfterBytes),
+                            [nameof(x.FragmentationBeforeBytes)] = x.FragmentationBeforeBytes,
+                            ["FragmentationBeforeHumane"] = Size.Humane(x.FragmentationBeforeBytes),
+                            [nameof(x.SizeAfterBytes)] = x.SizeAfterBytes,
+                            ["SizeAfterHumane"] = Size.Humane(x.SizeAfterBytes),
+                            [nameof(x.SizeBeforeBytes)] = x.SizeBeforeBytes,
+                            ["SizeBeforeHumane"] = Size.Humane(x.SizeBeforeBytes)
+                        })),
                     [nameof(info.HeapSizeBytes)] = info.HeapSizeBytes,
                     ["HeapSizeHumane"] = Size.Humane(info.HeapSizeBytes),
                     [nameof(info.HighMemoryLoadThresholdBytes)] = info.HighMemoryLoadThresholdBytes,

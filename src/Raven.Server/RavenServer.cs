@@ -111,6 +111,12 @@ namespace Raven.Server
 
         internal bool ThrowOnLicenseActivationFailure;
 
+#if ALLOW_ENCRYPTED_OVER_HTTP
+        internal bool AllowEncryptedDatabasesOverHttp = true;
+#else
+        internal bool AllowEncryptedDatabasesOverHttp = false;
+#endif
+
         internal Action<StorageEnvironment> BeforeSchemaUpgrade;
 
         internal string DebugTag;
@@ -863,7 +869,7 @@ namespace Raven.Server
 
                     // Using the server certificate as a client certificate to test if we can talk to ourselves
                     httpMessageHandler.ClientCertificates.Add(certificateCertificate);
-                    using (var client = new HttpClient(httpMessageHandler)
+                    using (var client = new RavenHttpClient(httpMessageHandler)
                     {
                         BaseAddress = new Uri(url),
                         Timeout = TimeSpan.FromSeconds(15)
@@ -891,7 +897,7 @@ namespace Raven.Server
                         httpMessageHandler.SslProtocols = TcpUtils.SupportedSslProtocols;
                         httpMessageHandler.ClientCertificates.Add(certificateCertificate);
 
-                        using (var client = new HttpClient(httpMessageHandler)
+                        using (var client = new RavenHttpClient(httpMessageHandler)
                         {
                             BaseAddress = new Uri(url),
                             Timeout = TimeSpan.FromSeconds(15)

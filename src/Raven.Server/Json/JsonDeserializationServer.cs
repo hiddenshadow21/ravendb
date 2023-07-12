@@ -1,6 +1,7 @@
 ﻿using System;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Indexes.Analysis;
+using Raven.Client.Documents.Indexes.Spatial;
 using Raven.Client.Documents.Indexes.TimeSeries;
 using Raven.Client.Documents.Operations.Backups;
 using Raven.Client.Documents.Operations.Configuration;
@@ -50,7 +51,6 @@ using Sparrow.Json;
 using FacetSetup = Raven.Client.Documents.Queries.Facets.FacetSetup;
 using Raven.Server.Documents.ETL.Providers.OLAP.Test;
 using Raven.Server.Documents.ETL.Providers.Queue.Test;
-using Raven.Server.Integrations.PostgreSQL.Handlers;
 using BackupConfiguration = Raven.Client.Documents.Operations.Backups.BackupConfiguration;
 using MigrationConfiguration = Raven.Server.Smuggler.Migration.MigrationConfiguration;
 using StudioConfiguration = Raven.Client.Documents.Operations.Configuration.StudioConfiguration;
@@ -218,6 +218,10 @@ namespace Raven.Server.Json
         public static readonly Func<BlittableJsonReaderObject, LegacySourceReplicationInformation> LegacySourceReplicationInformation = GenerateJsonDeserializationRoutine<LegacySourceReplicationInformation>();
 
         public static readonly Func<BlittableJsonReaderObject, BackupConfiguration> BackupConfiguration = GenerateJsonDeserializationRoutine<BackupConfiguration>();
+
+        public static readonly Func<BlittableJsonReaderObject, PeriodicBackupConfiguration> GetPeriodicBackupConfiguration = GenerateJsonDeserializationRoutine<PeriodicBackupConfiguration>();
+        
+        internal static readonly Func<BlittableJsonReaderObject, AutoSpatialOptions> AutoSpatialOptions = GenerateJsonDeserializationRoutine<AutoSpatialOptions>();
 
         public class Parameters
         {

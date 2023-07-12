@@ -347,7 +347,7 @@ interface replicationConflictListItemDto {
     ConflictsPerDocument: number;
 }
 
-type databaseDisconnectionCause = "Error" | "DatabaseDeleted" | "DatabaseDisabled" | "ChangingDatabase" | "DatabaseIsNotRelevant";
+type databaseDisconnectionCause = "Error" | "DatabaseDeleted" | "DatabaseDisabled" | "ChangingDatabase" | "DatabaseIsNotRelevant" | "DatabaseRestarted";
 
 type querySortType = "Ascending" | "Descending" | "Range Ascending" | "Range Descending";
 
@@ -687,7 +687,7 @@ interface textColumnOpts<T> {
     sortable?: "number" | "string" | valueProvider<T>;
     defaultSortOrder?: sortMode;
     customComparator?: (a: any, b: any) => number;
-    transformValue?: (a: any) => any;
+    transformValue?: ((a: any, item: T) => any) | ((a: any) => any);
 }
 
 interface hypertextColumnOpts<T> extends textColumnOpts<T> {

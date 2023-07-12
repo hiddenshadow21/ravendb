@@ -6,6 +6,7 @@ using Raven.Client.Json.Serialization.NewtonsoftJson.Internal;
 using Raven.Server.Documents;
 using Raven.Server.Json;
 using Raven.Server.Routing;
+using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
 using Raven.Server.SqlMigration;
 using Raven.Server.SqlMigration.Model;
@@ -23,7 +24,7 @@ namespace Raven.Server.Web.Studio
             {
                 var sourceSqlDatabase = JsonDeserializationServer.SourceSqlDatabase(sourceSqlDatabaseBlittable);
 
-                var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString);
+                var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString, sourceSqlDatabase.Schemas);
                 var schema = dbDriver.FindSchema();
 
                 await using (var writer = new AsyncBlittableJsonTextWriter(context, ResponseBodyStream()))
@@ -54,9 +55,9 @@ namespace Raven.Server.Web.Studio
 
                     var sourceSqlDatabase = migrationRequest.Source;
 
-                    var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString);
+                    var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString, sourceSqlDatabase.Schemas);
                     var schema = dbDriver.FindSchema();
-                    var token = CreateOperationToken();
+                    var token = CreateBackgroundOperationToken();
 
                     var result = new MigrationResult(migrationRequest.Settings);
 
@@ -82,7 +83,7 @@ namespace Raven.Server.Web.Studio
                                 throw;
                             }
 
-                             return (IOperationResult)result;
+                            return (IOperationResult)result;
                         });
                     }, operationId, token: token);
 
@@ -113,7 +114,7 @@ namespace Raven.Server.Web.Studio
 
                     var sourceSqlDatabase = testRequest.Source;
 
-                    var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString);
+                    var dbDriver = DatabaseDriverDispatcher.CreateDriver(sourceSqlDatabase.Provider, sourceSqlDatabase.ConnectionString, sourceSqlDatabase.Schemas);
                     var schema = dbDriver.FindSchema();
 
                     var (testResultDocument, documentId) = dbDriver.Test(testRequest.Settings, schema, context);

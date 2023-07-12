@@ -382,6 +382,7 @@ namespace Raven.Server.Documents
                     }
                 }, DatabaseShutdown);
                 _serverStore.LicenseManager.LicenseChanged += LoadTimeSeriesPolicyRunnerConfigurations;
+                IoChanges.OnIoChange += CheckWriteRateAndNotifyIfNecessary;
             }
             catch (Exception)
             {
@@ -471,8 +472,8 @@ namespace Raven.Server.Documents
                     using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext context))
                     using (context.OpenReadTransaction())
                     {
-                        const int batchSize = 256;
-                        var executed = await ExecuteClusterTransaction(context, batchSize: batchSize);
+                        var batchSize = Configuration.Cluster.MaxClusterTransactionsBatchSize;
+                        var executed = await ExecuteClusterTransaction(context, batchSize);
                         if (executed.Count == batchSize)
                         {
                             // we might have more to execute
@@ -495,6 +496,14 @@ namespace Raven.Server.Documents
             var batch = new List<ClusterTransactionCommand.SingleClusterDatabaseCommand>(
                 ClusterTransactionCommand.ReadCommandsBatch(context, Name, fromCount: _nextClusterCommand, take: batchSize));
 
+            Stopwatch stopwatch = null;
+            if (_logger.IsInfoEnabled)
+            {
+                stopwatch = Stopwatch.StartNew();
+                //_nextClusterCommand refers to each individual put/delete while batch size refers to number of transaction (each contains multiple commands)
+                _logger.Info($"Read {batch.Count:#,#;;0} cluster transaction commands - fromCount: {_nextClusterCommand}, take: {batchSize}");
+            }
+            
             if (batch.Count == 0)
             {
                 var index = _serverStore.Cluster.GetLastCompareExchangeIndexForDatabase(context, Name);
@@ -548,7 +557,12 @@ namespace Raven.Server.Documents
                     ClusterTransactionWaiter.SetException(command.Options.TaskId, command.Index, exception);
                 }
             }
-
+            finally
+            {
+                if (_logger.IsInfoEnabled && stopwatch != null)
+                    _logger.Info($"cluster transaction batch took {stopwatch.Elapsed:c}");
+            }
+            
             return batch;
         }
 
@@ -897,6 +911,11 @@ namespace Raven.Server.Documents
             exceptionAggregator.Execute(() =>
             {
                 _serverStore.LicenseManager.LicenseChanged -= LoadTimeSeriesPolicyRunnerConfigurations;
+            });
+
+            exceptionAggregator.Execute(() =>
+            {
+                IoChanges.OnIoChange -= CheckWriteRateAndNotifyIfNecessary;
             });
 
             ForTestingPurposes?.DisposeLog?.Invoke(Name, "Disposing MasterKey");
@@ -1338,8 +1357,9 @@ namespace Raven.Server.Documents
                     _lastTopologyIndex = record.Topology.Stamp.Index;
 
                 ClientConfiguration = record.Client;
-                IdentityPartsSeparator = record.Client?.IdentityPartsSeparator ?? '/';
-
+                IdentityPartsSeparator = record.Client is { Disabled: false }
+                    ? record.Client.IdentityPartsSeparator ?? Constants.Identities.DefaultSeparator
+                    : Constants.Identities.DefaultSeparator;
                 StudioConfiguration = record.Studio;
 
                 NotifyFeaturesAboutStateChange(record, index);
@@ -1571,79 +1591,6 @@ namespace Raven.Server.Documents
             }
         }
 
-        public string WhoseTaskIsIt(
-            DatabaseTopology databaseTopology,
-            IDatabaseTask configuration,
-            IDatabaseTaskStatus taskStatus,
-            bool keepTaskOnOriginalMemberNode = false)
-        {
-            var whoseTaskIsIt = databaseTopology.WhoseTaskIsIt(
-                ServerStore.Engine.CurrentState, configuration,
-                getLastResponsibleNode:
-                () =>
-                {
-                    var lastResponsibleNode = taskStatus?.NodeTag;
-                    if (lastResponsibleNode == null)
-                    {
-                        // first time this task is assigned
-                        return null;
-                    }
-
-                    if (databaseTopology.AllNodes.Contains(lastResponsibleNode) == false)
-                    {
-                        // the topology doesn't include the last responsible node anymore
-                        // we'll choose a different one
-                        return null;
-                    }
-
-                    if (taskStatus is PeriodicBackupStatus)
-                    {
-                        if (databaseTopology.Rehabs.Contains(lastResponsibleNode) &&
-                            databaseTopology.PromotablesStatus.TryGetValue(lastResponsibleNode, out var status) &&
-                            (status == DatabasePromotionStatus.OutOfCpuCredits ||
-                             status == DatabasePromotionStatus.EarlyOutOfMemory ||
-                             status == DatabasePromotionStatus.HighDirtyMemory))
-                        {
-                            // avoid moving backup tasks when the machine is out of CPU credit
-                            return lastResponsibleNode;
-                        }
-                    }
-
-                    if (ServerStore.LicenseManager.HasHighlyAvailableTasks() == false)
-                    {
-                        // can't redistribute, keep it on the original node
-                        RaiseAlertIfNecessary(databaseTopology, configuration, lastResponsibleNode);
-                        return lastResponsibleNode;
-                    }
-
-                    if (keepTaskOnOriginalMemberNode &&
-                        databaseTopology.Members.Contains(lastResponsibleNode))
-                    {
-                        // keep the task on the original node
-                        return lastResponsibleNode;
-                    }
-
-                    return null;
-                });
-
-            if (whoseTaskIsIt == null && taskStatus is PeriodicBackupStatus)
-                return taskStatus.NodeTag; // we don't want to stop backup process
-
-            return whoseTaskIsIt;
-        }
-
-        private void RaiseAlertIfNecessary(DatabaseTopology databaseTopology, IDatabaseTask configuration, string lastResponsibleNode)
-        {
-            // raise alert if redistribution is necessary
-            if (databaseTopology.Count > 1 &&
-                ServerStore.NodeTag != lastResponsibleNode &&
-                databaseTopology.Members.Contains(lastResponsibleNode) == false)
-            {
-                var alert = LicenseManager.CreateHighlyAvailableTasksAlert(databaseTopology, configuration, lastResponsibleNode);
-                NotificationCenter.Add(alert);
-            }
-        }
-
         public IEnumerable<DatabasePerformanceMetrics> GetAllPerformanceMetrics()
         {
             yield return TxMerger.GeneralWaitPerformanceMetrics;
@@ -1867,6 +1814,31 @@ namespace Raven.Server.Documents
             }
         }
 
+        public void CheckWriteRateAndNotifyIfNecessary(IoChange ioChange)
+        {
+            switch (ioChange.MeterItem.Type)
+            {
+                case IoMetrics.MeterType.Compression:
+                    return; // In-memory operation, no action required.
+
+                case IoMetrics.MeterType.JournalWrite:
+                    if (ioChange.MeterItem.Duration.TotalMilliseconds < 500)
+                        return;
+                    break;
+
+                case IoMetrics.MeterType.DataFlush:
+                case IoMetrics.MeterType.DataSync:
+                    if (ioChange.MeterItem.Duration.TotalMilliseconds < 120_000)
+                        return;
+                    break;
+            }
+            
+            if (ioChange.MeterItem.RateOfWritesInMbPerSec > 1) 
+                return;
+
+            NotificationCenter.SlowWrites.Add(ioChange);
+        }
+
         public long GetEnvironmentsHash()
         {
             long hash = 0;
@@ -1939,6 +1911,9 @@ namespace Raven.Server.Documents
 
                 return new DisposableAction(() => Subscription_ActionToCallAfterRegisterSubscriptionConnection = null);
             }
+
+            internal ManualResetEvent DatabaseRecordLoadHold;
+            internal ManualResetEvent HealthCheckHold;
         }
     }
 

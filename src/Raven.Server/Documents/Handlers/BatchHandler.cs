@@ -655,9 +655,10 @@ namespace Raven.Server.Documents.Handlers
                                             }
                                         }
 
-                                        var putResult = Database.DocumentsStorage.Put(context, cmd.Id, null, cmd.Document.Clone(context), changeVector: changeVector,
+                                        var document = cmd.Document.Clone(context);
+                                        var putResult = Database.DocumentsStorage.Put(context, cmd.Id, null, document, changeVector: changeVector,
                                             flags: DocumentFlags.FromClusterTransaction);
-                                        context.DocumentDatabase.HugeDocuments.AddIfDocIsHuge(cmd.Id, cmd.Document.Size);
+                                        context.DocumentDatabase.HugeDocuments.AddIfDocIsHuge(cmd.Id, document.Size);
                                         AddPutResult(putResult);
                                     }
                                     else
@@ -950,7 +951,7 @@ namespace Raven.Server.Documents.Handlers
                             EtlGetDocIdFromPrefixIfNeeded(ref docId, cmd, lastPutResult);
 
                             var attachmentPutResult = Database.DocumentsStorage.AttachmentsStorage.PutAttachment(context, docId, cmd.Name,
-                                cmd.ContentType, attachmentStream.Hash, cmd.ChangeVector, stream, updateDocument: false);
+                                cmd.ContentType, attachmentStream.Hash, cmd.ChangeVector, stream, updateDocument: false, extractCollectionName: ModifiedCollections is not null);
                             LastChangeVector = attachmentPutResult.ChangeVector;
 
                             var apReply = new DynamicJsonValue
@@ -964,6 +965,9 @@ namespace Raven.Server.Documents.Handlers
                                 [nameof(AttachmentDetails.Size)] = attachmentPutResult.Size
                             };
 
+                            if (attachmentPutResult.CollectionName != null)
+                                ModifiedCollections?.Add(attachmentPutResult.CollectionName.Name);
+
                             if (_documentsToUpdateAfterAttachmentChange == null)
                                 _documentsToUpdateAfterAttachmentChange = new Dictionary<string, List<(DynamicJsonValue Reply, string FieldName)>>(StringComparer.OrdinalIgnoreCase);
 
@@ -975,8 +979,11 @@ namespace Raven.Server.Documents.Handlers
                             break;
 
                         case CommandType.AttachmentDELETE:
-                            Database.DocumentsStorage.AttachmentsStorage.DeleteAttachment(context, cmd.Id, cmd.Name, cmd.ChangeVector, updateDocument: false);
+                            Database.DocumentsStorage.AttachmentsStorage.DeleteAttachment(context, cmd.Id, cmd.Name, cmd.ChangeVector, out var collectionName, updateDocument: false, extractCollectionName: ModifiedCollections is not null);
 
+                            if (collectionName != null)
+                                ModifiedCollections?.Add(collectionName.Name);
+                            
                             var adReply = new DynamicJsonValue
                             {
                                 ["Type"] = nameof(CommandType.AttachmentDELETE),
@@ -995,7 +1002,13 @@ namespace Raven.Server.Documents.Handlers
                             break;
 
                         case CommandType.AttachmentMOVE:
-                            var attachmentMoveResult = Database.DocumentsStorage.AttachmentsStorage.MoveAttachment(context, cmd.Id, cmd.Name, cmd.DestinationId, cmd.DestinationName, cmd.ChangeVector);
+                            var attachmentMoveOutput = Database.DocumentsStorage.AttachmentsStorage.MoveAttachment(context, cmd.Id, cmd.Name, cmd.DestinationId, cmd.DestinationName, cmd.ChangeVector, extractCollectionName: ModifiedCollections is not null);
+                            var attachmentMoveResult = attachmentMoveOutput.Result;
+                            
+                            if (attachmentMoveOutput.DestinationCollectionName != null)
+                                ModifiedCollections?.Add(attachmentMoveOutput.DestinationCollectionName.Name);
+                            if (attachmentMoveOutput.SourceCollectionName != null)
+                                ModifiedCollections?.Add(attachmentMoveOutput.SourceCollectionName.Name);
 
                             LastChangeVector = attachmentMoveResult.ChangeVector;
 
@@ -1034,8 +1047,11 @@ namespace Raven.Server.Documents.Handlers
                                 // if attachment type is not sent, we fallback to default, which is Document
                                 cmd.AttachmentType = AttachmentType.Document;
                             }
-                            var attachmentCopyResult = Database.DocumentsStorage.AttachmentsStorage.CopyAttachment(context, cmd.Id, cmd.Name, cmd.DestinationId, cmd.DestinationName, cmd.ChangeVector, cmd.AttachmentType);
+                            var attachmentCopyResult = Database.DocumentsStorage.AttachmentsStorage.CopyAttachment(context, cmd.Id, cmd.Name, cmd.DestinationId, cmd.DestinationName, cmd.ChangeVector, cmd.AttachmentType, extractCollectionName: ModifiedCollections is not null);
 
+                            if (attachmentCopyResult.CollectionName != null)
+                                ModifiedCollections?.Add(attachmentCopyResult.CollectionName.Name);
+                                
                             LastChangeVector = attachmentCopyResult.ChangeVector;
 
                             var acReply = new DynamicJsonValue

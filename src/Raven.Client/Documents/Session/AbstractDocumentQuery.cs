@@ -1049,14 +1049,27 @@ Use session.Query<T>() instead of session.Advanced.DocumentQuery<T>. The session
 
                 case CloseSubclauseToken close:
                     string parameter = AddQueryParameter(boost);
+                    int openSubclauseToSkip = 0;
                     while (last != null)
                     {
                         last = last.Previous; // find the previous option
-                        if (last?.Value is OpenSubclauseToken open)
+                        
+                        switch (last?.Value)
                         {
-                            open.BoostParameterName = parameter;
-                            close.BoostParameterName = parameter;
-                            return;
+                            case CloseSubclauseToken prevClose:
+                            {
+                                // We have to count how many inner subclauses were inside current subclause
+                                openSubclauseToSkip++;
+                                continue;
+                            }
+                            case OpenSubclauseToken open when openSubclauseToSkip > 0:
+                                // Inner subclause open - we have to skip it because we want to match only the leftmost opening.
+                                openSubclauseToSkip--;
+                                continue;
+                            case OpenSubclauseToken open:
+                                open.BoostParameterName = parameter;
+                                close.BoostParameterName = parameter;
+                                return;
                         }
                     }
                     break;
@@ -1892,6 +1905,12 @@ Use session.Query<T>() instead of session.Advanced.DocumentQuery<T>. The session
         {
             return FilterTokens;
         }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private LinkedList<QueryToken> GetCurrentOrderByTokens()
+        {
+            return OrderByTokens;
+        }
 
         protected void UpdateFieldsToFetchToken(FieldsToFetchToken fieldsToFetch)
         {
@@ -1929,19 +1948,43 @@ Use session.Query<T>() instead of session.Advanced.DocumentQuery<T>. The session
         /// <param name = "fromAlias">The alias</param>
         public void AddFromAliasToWhereTokens(string fromAlias)
         {
+            var tokens = GetCurrentWhereTokens();
+            AddFromAliasToTokens(fromAlias, tokens);
+        }
+
+        public void AddFromAliasToOrderByTokens(string fromAlias)
+        {
+            var tokens = GetCurrentOrderByTokens();
+            AddFromAliasToTokens(fromAlias, tokens);
+        }
+
+        public void AddFromAliasToFilterTokens(string fromAlias)
+        {
+            var tokens = GetCurrentFilterTokens();
+            AddFromAliasToTokens(fromAlias, tokens);
+        }
+
+        private void AddFromAliasToTokens(string fromAlias, LinkedList<QueryToken> tokens)
+        {
             if (string.IsNullOrEmpty(fromAlias))
                 throw new InvalidOperationException("Alias cannot be null or empty");
 
-            var tokens = GetCurrentWhereTokens();
             var current = tokens.First;
             while (current != null)
             {
-                if (current.Value is WhereToken w)
-                    current.Value = w.AddAlias(fromAlias);
+                switch (current.Value)
+                {
+                    case WhereToken w:
+                        current.Value = w.AddAlias(fromAlias);
+                        break;
+                    case OrderByToken o:
+                        current.Value = o.AddAlias(fromAlias);
+                        break;
+                }
                 current = current.Next;
             }
         }
-
+        
         public string AddAliasToIncludesTokens(string fromAlias)
         {
             if (_includesAlias == null)

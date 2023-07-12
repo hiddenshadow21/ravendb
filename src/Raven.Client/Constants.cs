@@ -34,6 +34,8 @@ namespace Raven.Client
 
             public const string TopologyEtag = "Topology-Etag";
 
+            public const string ClusterTopologyEtag = "Cluster-Topology-Etag";
+
             public const string ClientConfigurationEtag = "Client-Configuration-Etag";
 
             public const string LastKnownClusterTransactionIndex = "Known-Raft-Index";
@@ -302,6 +304,23 @@ namespace Raven.Client
                     public const string NullValue = "NULL_VALUE";
 
                     public const string EmptyString = "EMPTY_STRING";
+
+                    public class JavaScript
+                    {
+                        private JavaScript()
+                        {
+                        }
+                        
+                        public const string ValuePropertyName = "$value";
+                        
+                        public const string OptionsPropertyName = "$options";
+                        
+                        public const string NamePropertyName = "$name";
+                        
+                        public const string SpatialPropertyName = "$spatial";
+                        
+                        public const string BoostPropertyName = "$boost";
+                    }
                 }
 
                 public class Spatial
@@ -456,6 +475,11 @@ namespace Raven.Client
 
                 public const string DestinationDocumentChangeVector = null;
             }
+        }
+
+        internal static class Identities
+        {
+            public const char DefaultSeparator = '/';
         }
 
         internal class Obsolete

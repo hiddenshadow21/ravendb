@@ -103,7 +103,7 @@ namespace Raven.Server.Web.System
                     if (databaseRecord.Topology.RelevantFor(node))
                         throw new InvalidOperationException($"Can't add node {node} to {name} topology because it is already part of it");
 
-                    ValidateNodeForAddingToDb(name, node, databaseRecord, clusterTopology, baseMessage: $"Can't add node {node} to database '{name}' topology");
+                    ValidateNodeForAddingToDb(name, node, databaseRecord, clusterTopology, Server, baseMessage: $"Can't add node {node} to database '{name}' topology");
                 }
 
                 //The case were we don't care where the database will be added to
@@ -114,10 +114,13 @@ namespace Raven.Server.Web.System
                         .Concat(clusterTopology.Watchers.Keys)
                         .ToList();
 
-                    allNodes.RemoveAll(n => databaseRecord.Topology.AllNodes.Contains(n) || (databaseRecord.Encrypted && NotUsingHttps(clusterTopology.GetUrlFromTag(n))));
+                    if (Server.AllowEncryptedDatabasesOverHttp == false)
+                    {
+                        allNodes.RemoveAll(n => databaseRecord.Topology.AllNodes.Contains(n) || (databaseRecord.Encrypted && NotUsingHttps(clusterTopology.GetUrlFromTag(n))));
 
-                    if (databaseRecord.Encrypted && allNodes.Count == 0)
-                        throw new InvalidOperationException($"Database {name} is encrypted and requires a node which supports SSL. There is no such node available in the cluster.");
+                        if (databaseRecord.Encrypted && allNodes.Count == 0)
+                            throw new InvalidOperationException($"Database {name} is encrypted and requires a node which supports SSL. There is no such node available in the cluster.");
+                    }
 
                     if (allNodes.Count == 0)
                         throw new InvalidOperationException($"Database {name} already exists on all the nodes of the cluster");
@@ -246,7 +249,7 @@ namespace Raven.Server.Web.System
                     throw licenseLimit;
                 }
 
-                if (databaseRecord.Encrypted && databaseRecord.Topology?.DynamicNodesDistribution == true)
+                if (databaseRecord.Encrypted && databaseRecord.Topology?.DynamicNodesDistribution == true && Server.AllowEncryptedDatabasesOverHttp == false)
                 {
                     throw new InvalidOperationException($"Cannot enable '{nameof(DatabaseTopology.DynamicNodesDistribution)}' for encrypted database: " + databaseRecord.DatabaseName);
                 }
@@ -487,7 +490,7 @@ namespace Raven.Server.Web.System
                     throw new InvalidOperationException($"node '{node}' already exists. This is not allowed. Database Topology : {topology}");
 
                 var url = clusterTopology.GetUrlFromTag(node);
-                if (databaseRecord.Encrypted && NotUsingHttps(url))
+                if (databaseRecord.Encrypted && NotUsingHttps(url) && Server.AllowEncryptedDatabasesOverHttp == false)
                     throw new InvalidOperationException($"{databaseRecord.DatabaseName} is encrypted but node {node} with url {url} doesn't use HTTPS. This is not allowed.");
             }
         }
@@ -596,7 +599,7 @@ namespace Raven.Server.Web.System
                     restoreType = RestoreType.Local;
                 }
                 var operationId = ServerStore.Operations.GetNextOperationId();
-                var cancelToken = CreateOperationToken();
+                var cancelToken = CreateBackgroundOperationToken();
                 RestoreBackupTaskBase restoreBackupTask;
                 switch (restoreType)
                 {
@@ -1087,7 +1090,7 @@ namespace Raven.Server.Web.System
 
                 var database = await ServerStore.DatabasesLandlord.TryGetOrCreateResourceStore(compactSettings.DatabaseName).ConfigureAwait(false);
 
-                var token = CreateOperationToken();
+                var token = CreateBackgroundOperationToken();
                 var compactDatabaseTask = new CompactDatabaseTask(
                     ServerStore,
                     compactSettings.DatabaseName,
@@ -1266,7 +1269,7 @@ namespace Raven.Server.Web.System
             }
             var (commandline, tmpFile) = configuration.GenerateExporterCommandLine();
             var processStartInfo = new ProcessStartInfo(dataExporter, commandline);
-            var token = new OperationCancelToken(database.DatabaseShutdown, HttpContext.RequestAborted);
+            var token = new OperationCancelToken(database.DatabaseShutdown);
             Task timeout = null;
             if (configuration.Timeout.HasValue)
             {

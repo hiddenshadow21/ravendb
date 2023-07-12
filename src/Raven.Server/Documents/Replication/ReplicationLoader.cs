@@ -111,24 +111,7 @@ namespace Raven.Server.Documents.Replication
 
         public long GetMinimalEtagForReplication()
         {
-            var replicationNodes = Destinations?.ToList();
-            if (replicationNodes == null || replicationNodes.Count == 0)
-                return long.MaxValue;
-
             long minEtag = long.MaxValue;
-
-            foreach (var lastEtagPerDestination in _lastSendEtagPerDestination)
-            {
-                replicationNodes.Remove(lastEtagPerDestination.Key);
-                minEtag = Math.Min(lastEtagPerDestination.Value.LastEtag, minEtag);
-            }
-            if (replicationNodes.Count > 0)
-            {
-                // if we don't have information from all our destinations, we don't know what tombstones
-                // we can remove. Note that this explicitly _includes_ disabled destinations, which prevents
-                // us from doing any tombstone cleanup.
-                return 0;
-            }
 
             using (_server.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
             using (ctx.OpenReadTransaction())
@@ -143,6 +126,24 @@ namespace Raven.Server.Documents.Replication
                         minEtag = Math.Min(myEtag, minEtag);
                     }
                 }
+            }
+
+            var replicationNodes = Destinations?.ToList();
+            if (replicationNodes == null || replicationNodes.Count == 0)
+                return minEtag;
+
+            foreach (var lastEtagPerDestination in _lastSendEtagPerDestination)
+            {
+                replicationNodes.Remove(lastEtagPerDestination.Key);
+                minEtag = Math.Min(lastEtagPerDestination.Value.LastEtag, minEtag);
+            }
+
+            if (replicationNodes.Count > 0)
+            {
+                // if we don't have information from all our destinations, we don't know what tombstones
+                // we can remove. Note that this explicitly _includes_ disabled destinations, which prevents
+                // us from doing any tombstone cleanup.
+                return 0;
             }
 
             return minEtag;
@@ -1168,7 +1169,7 @@ namespace Raven.Server.Documents.Replication
                 return false;
 
             var taskStatus = GetExternalReplicationState(_server, Database.Name, task.TaskId);
-            var whoseTaskIsIt = Database.WhoseTaskIsIt(topology, task, taskStatus);
+            var whoseTaskIsIt = BackupUtils.WhoseTaskIsIt(_server, topology, task, taskStatus, Database.NotificationCenter);
             return whoseTaskIsIt == _server.NodeTag;
         }
 
@@ -1319,7 +1320,7 @@ namespace Raven.Server.Documents.Replication
                     Database = Database.Name
                 }).ToList();
 
-                Task.Run(() =>
+                _ = Task.Run(() =>
                 {
                     // here we might have blocking calls to fetch the tcp info.
                     try
@@ -1333,10 +1334,15 @@ namespace Raven.Server.Documents.Replication
                     }
                 });
             }
+
             _internalDestinations.Clear();
-            foreach (var item in newInternalDestinations)
+
+            if (newInternalDestinations != null)
             {
-                _internalDestinations.Add(item);
+                foreach (var item in newInternalDestinations)
+                {
+                    _internalDestinations.Add(item);
+                }
             }
         }
 
@@ -1458,7 +1464,7 @@ namespace Raven.Server.Documents.Replication
                 switch (node)
                 {
                     case ExternalReplicationBase exNode:
-                    {
+                        {
                             var database = exNode.ConnectionString.Database;
                             if (node is PullReplicationAsSink sink)
                             {
@@ -1467,17 +1473,17 @@ namespace Raven.Server.Documents.Replication
 
                             // normal external replication
                             return GetExternalReplicationTcpInfo(exNode as ExternalReplication, certificate, database);
-                    }
-                    case InternalReplication internalNode:
-                    {
-                        using (var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken))
-                        {
-                            cts.CancelAfter(_server.Engine.TcpConnectionTimeout);
-                            return ReplicationUtils.GetTcpInfoForInternalReplication(internalNode.Url, internalNode.Database, Database.DbId.ToString(), Database.ReadLastEtag(),
-                                "Replication",
-                        certificate, _server.NodeTag, cts.Token);
                         }
-                    }
+                    case InternalReplication internalNode:
+                        {
+                            using (var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken))
+                            {
+                                cts.CancelAfter(_server.Engine.TcpConnectionTimeout);
+                                return ReplicationUtils.GetTcpInfoForInternalReplication(internalNode.Url, internalNode.Database, Database.DbId.ToString(), Database.ReadLastEtag(),
+                                    "Replication",
+                            certificate, _server.NodeTag, cts.Token);
+                            }
+                        }
                     default:
                         throw new InvalidOperationException(
                             $"Unexpected replication node type, Expected to be '{typeof(ExternalReplication)}' or '{typeof(InternalReplication)}', but got '{node.GetType()}'");
@@ -1623,7 +1629,7 @@ namespace Raven.Server.Documents.Replication
             using (var requestExecutor = RequestExecutor.Create(exNode.ConnectionString.TopologyDiscoveryUrls, exNode.ConnectionString.Database, certificate, DocumentConventions.DefaultForServer))
             using (Database.DocumentsStorage.ContextPool.AllocateOperationContext(out JsonOperationContext ctx))
             {
-                var cmd = new GetTcpInfoCommand(ExternalReplicationTag, database, Database.DbId.ToString(), Database.ReadLastEtag());
+                var cmd = new GetTcpInfoCommand(_server.GetNodeHttpServerUrl(), ExternalReplicationTag, database, Database.DbId.ToString(), Database.ReadLastEtag());
                 try
                 {
                     requestExecutor.ExecuteWithCancellationToken(cmd, ctx, _shutdownToken);
@@ -1909,6 +1915,34 @@ namespace Raven.Server.Documents.Replication
             }
 
             return result;
+        }
+
+        public Dictionary<string, HashSet<string>> GetDisabledSubscribersCollections(HashSet<string> tombstoneCollections)
+        {
+            var dict = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var replicationDestination in Destinations)
+            {
+                if (replicationDestination.Disabled)
+                    dict[replicationDestination.FromString()] = tombstoneCollections;
+            }
+
+            using (_server.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+            using (ctx.OpenReadTransaction())
+            {
+                var externals = _server.Cluster?.ReadRawDatabaseRecord(ctx, Database.Name)?.ExternalReplications;
+                if (externals != null)
+                {
+                    foreach (var external in externals)
+                    {
+                        if (external.Disabled)
+                        {
+                            dict[external.Name] = tombstoneCollections;
+                        }
+                    }
+                }
+            }
+
+            return dict;
         }
 
         public class IncomingConnectionRejectionInfo

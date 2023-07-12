@@ -58,7 +58,7 @@ namespace Raven.Server.Documents.Replication
 
             _shouldSkipSendingTombstones = _parent.Destination is PullReplicationAsSink sink && sink.Mode == PullReplicationMode.SinkToHub &&
                                            parent._outgoingPullReplicationParams?.PreventDeletionsMode?.HasFlag(PreventDeletionsMode.PreventSinkToHubDeletions) == true &&
-                                           _parent._database.ForTestingPurposes?.ForceSendTombstones == false;
+                                           _parent._database.ForTestingPurposes?.ForceSendTombstones != true;
 
             _numberOfAttachmentsTrackedForDeduplication = parent._database.Configuration.Replication.MaxNumberOfAttachmentsTrackedForDeduplication;
             _context = new ByteStringContext(SharedMultipleUseFlag.None);
@@ -179,11 +179,11 @@ namespace Raven.Server.Documents.Replication
 
         internal static IEnumerable<ReplicationBatchItem> GetReplicationItems(DocumentDatabase database, DocumentsOperationContext ctx, long etag, ReplicationStats stats, bool caseInsensitiveCounters)
         {
-            var docs = database.DocumentsStorage.GetDocumentsFrom(ctx, etag + 1);
+            var docs = database.DocumentsStorage.GetDocumentsFrom(ctx, etag + 1, fields: DocumentFields.Id | DocumentFields.ChangeVector | DocumentFields.Data);
             var tombs = database.DocumentsStorage.GetTombstonesFrom(ctx, etag + 1);
             var conflicts = database.DocumentsStorage.ConflictsStorage.GetConflictsFrom(ctx, etag + 1).Select(DocumentReplicationItem.From);
             var revisionsStorage = database.DocumentsStorage.RevisionsStorage;
-            var revisions = revisionsStorage.GetRevisionsFrom(ctx, etag + 1, long.MaxValue).Select(DocumentReplicationItem.From);
+            var revisions = revisionsStorage.GetRevisionsFrom(ctx, etag + 1, long.MaxValue, fields: DocumentFields.Id | DocumentFields.ChangeVector | DocumentFields.Data).Select(DocumentReplicationItem.From);
             var attachments = database.DocumentsStorage.AttachmentsStorage.GetAttachmentsFrom(ctx, etag + 1);
             var counters = database.DocumentsStorage.CountersStorage.GetCountersFrom(ctx, etag + 1, caseInsensitiveCounters);
             var timeSeries = database.DocumentsStorage.TimeSeriesStorage.GetSegmentsFrom(ctx, etag + 1);
@@ -786,7 +786,8 @@ namespace Raven.Server.Documents.Replication
                         // we let pass all the conflicted revisions, since we keep them with their original change vector which might be `AlreadyMerged` at the destination.
                         if (doc.Flags.Contain(DocumentFlags.Conflicted) ||
                             doc.Flags.Contain(DocumentFlags.FromClusterTransaction) ||
-                            doc.Flags.Contain(DocumentFlags.FromOldDocumentRevision))
+                            doc.Flags.Contain(DocumentFlags.FromOldDocumentRevision) ||
+                            doc.Flags.Contain(DocumentFlags.ForceCreated))
                         {
                             return false;
                         }

@@ -579,6 +579,7 @@ namespace Raven.Server.ServerWide
                 Configuration.Memory.UseTotalDirtyMemInsteadOfMemUsage,
                 Configuration.Memory.EnableHighTemporaryDirtyMemoryUse,
                 Configuration.Memory.TemporaryDirtyMemoryAllowedPercentage,
+                Configuration.Memory.LargeObjectHeapCompactionThresholdPercentage,
                 new LowMemoryMonitor(), ServerShutdown);
 
             MemoryInformation.SetFreeCommittedMemory(
@@ -1274,11 +1275,12 @@ namespace Raven.Server.ServerWide
                 }
             }
 
-            var dueTime = (int)(wakeup - now).TotalMilliseconds;
-            DatabasesLandlord.RescheduleDatabaseWakeup(db, dueTime, wakeup);
+                wakeup = DateTime.SpecifyKind(wakeup, DateTimeKind.Utc);
+                var nextIdleDatabaseActivity = new IdleDatabaseActivity(IdleDatabaseActivityType.WakeUpDatabase, wakeup);
+                DatabasesLandlord.RescheduleNextIdleDatabaseActivity(db, nextIdleDatabaseActivity);
 
             if (Logger.IsOperationsEnabled)
-                Logger.Operations($"Rescheduling the wakeup timer for idle database '{db}', because backup task '{backupConfig.Name}' with id '{taskId}' which belongs to node '{Engine.Tag}', new timer is set to: '{wakeup}', with dueTime: {dueTime} ms.");
+                    Logger.Operations($"Rescheduling the wakeup timer for idle database '{db}', because backup task '{backupConfig.Name}' with id '{taskId}' which belongs to node '{Engine.Tag}', new timer is set to: '{nextIdleDatabaseActivity.DateTime}', with dueTime: {nextIdleDatabaseActivity.DueTime} ms.");
 
         }
 
@@ -2506,7 +2508,7 @@ namespace Raven.Server.ServerWide
                                 dbIdEtagDictionary[kvp.Key] = kvp.Value;
                         }
 
-                        if (DatabasesLandlord.UnloadDirectly(databaseKvp.Key, database.PeriodicBackupRunner.GetWakeDatabaseTimeUtc(database.Name)))
+                        if (DatabasesLandlord.UnloadDirectly(databaseKvp.Key, database.PeriodicBackupRunner.GetNextIdleDatabaseActivity(database.Name)))
                             IdleDatabases[database.Name] = dbIdEtagDictionary;
                     }
                 }
@@ -2707,7 +2709,7 @@ namespace Raven.Server.ServerWide
                 .Concat(clusterTopology.Watchers.Keys)
                 .ToList();
 
-            if (record.Encrypted)
+            if (record.Encrypted && Server.AllowEncryptedDatabasesOverHttp == false)
             {
                 clusterNodes.RemoveAll(n => AdminDatabasesHandler.NotUsingHttps(clusterTopology.GetUrlFromTag(n)));
                 if (clusterNodes.Count < topology.ReplicationFactor)
@@ -3111,8 +3113,8 @@ namespace Raven.Server.ServerWide
                 || serverCertificateChanged
                 || _clusterRequestExecutor.Url.Equals(leaderUrl, StringComparison.OrdinalIgnoreCase) == false)
             {
-                _clusterRequestExecutor?.Dispose();
-                _clusterRequestExecutor = CreateNewClusterRequestExecutor(leaderUrl);
+                var newExecutor = CreateNewClusterRequestExecutor(leaderUrl);
+                Interlocked.Exchange(ref _clusterRequestExecutor, newExecutor);
             }
 
             try
@@ -3329,7 +3331,7 @@ namespace Raven.Server.ServerWide
 
                 using (var cts = new CancellationTokenSource(Server.Configuration.Cluster.OperationTimeout.AsTimeSpan))
                 {
-                    connectionInfo = ReplicationUtils.GetTcpInfoAsync(url, database, "Test-Connection", Server.Certificate.Certificate,
+                    connectionInfo = ReplicationUtils.GetDatabaseTcpInfoAsync(GetNodeHttpServerUrl(), url, database, "Test-Connection", Server.Certificate.Certificate,
                         cts.Token);
                 }
                 Task timeoutTask = await Task.WhenAny(timeout, connectionInfo);

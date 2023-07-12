@@ -925,10 +925,10 @@ namespace Raven.Server.Documents.Patch
                 return Undefined.Instance;
             }
 
-            private JsValue Spatial_Distance(JsValue self, JsValue[] args)
+            private static JsValue Spatial_Distance(JsValue self, JsValue[] args)
             {
-                if (args.Length < 4 && args.Length > 5)
-                    throw new ArgumentException("Called with expected number of arguments, expected: spatial.distance(lat1, lng1, lat2, lng2, kilometers | miles | cartesian)");
+                if (args.Length is < 4 or > 6)
+                    throw new ArgumentException("Called with unexpected number of arguments, expected: spatial.distance(lat1, lng1, lat2, lng2, kilometers | miles | cartesian)");
 
                 for (int i = 0; i < 4; i++)
                 {
@@ -1951,7 +1951,7 @@ namespace Raven.Server.Documents.Patch
                 {
                     //ScriptRunnerResult is in charge of disposing of the disposable but it is not created (the clones did)
                     JavaScriptUtils.Clear();
-                    throw CreateFullError(e);
+                    throw CreateFullError(documentId, e);
                 }
                 catch (Exception)
                 {
@@ -1976,7 +1976,7 @@ namespace Raven.Server.Documents.Patch
                 if (_args.Length != args.Length)
                     _args = new JsValue[args.Length];
                 for (var i = 0; i < args.Length; i++)
-                    _args[i] = JavaScriptUtils.TranslateToJs(ScriptEngine, jsonCtx, args[i]);
+                    _args[i] = JavaScriptUtils.TranslateToJs(ScriptEngine, jsonCtx, args[i], needsClone: false);
 
                 if (method != QueryMetadata.SelectOutput &&
                     _args.Length == 2 &&
@@ -1992,17 +1992,17 @@ namespace Raven.Server.Documents.Patch
                 throw new ArgumentNullException("jsonCtx");
             }
 
-            private Client.Exceptions.Documents.Patching.JavaScriptException CreateFullError(JavaScriptException e)
+            private Client.Exceptions.Documents.Patching.JavaScriptException CreateFullError(string documentId, JavaScriptException e)
             {
-                string msg;
+                string msg = $"Script failed for document ID '{documentId}'. ";
                 if (e.Error.IsString())
-                    msg = e.Error.AsString();
+                    msg += e.Error.AsString();
                 else if (e.Error.IsObject())
-                    msg = JsBlittableBridge.Translate(_jsonCtx, ScriptEngine, e.Error.AsObject()).ToString();
+                    msg += JsBlittableBridge.Translate(_jsonCtx, ScriptEngine, e.Error.AsObject()).ToString();
                 else
-                    msg = e.Error.ToString();
+                    msg += e.Error.ToString();
 
-                msg = "At " + e.Column + ":" + e.LineNumber + " " + msg;
+                msg += " At " + e.Column + ":" + e.LineNumber + " " + msg;
                 var javaScriptException = new Client.Exceptions.Documents.Patching.JavaScriptException(msg, e);
                 return javaScriptException;
             }
@@ -2065,7 +2065,12 @@ namespace Raven.Server.Documents.Patch
                 {
                     if (val.IsNull())
                         return null;
-                    return JsBlittableBridge.Translate(context, ScriptEngine, val.AsObject(), modifier, usageMode, isNested);
+                    
+                    var instance = val.AsObject();
+                    if (instance is BlittableObjectInstance boi && boi.TryGetOriginalDocumentIfUnchanged(out var doc))
+                        return doc;
+                    
+                    return JsBlittableBridge.Translate(context, ScriptEngine, instance, modifier, usageMode, isNested);
                 }
                 if (val.IsNumber())
                     return val.AsNumber();

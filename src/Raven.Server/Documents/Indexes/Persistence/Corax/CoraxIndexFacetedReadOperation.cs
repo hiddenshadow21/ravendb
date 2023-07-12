@@ -51,7 +51,7 @@ public class CoraxIndexFacetedReadOperation : IndexFacetReadOperationBase
 
         var parameters = new CoraxQueryBuilder.Parameters(_indexSearcher, _allocator, null, null, query, _index, query.QueryParameters, _queryBuilderFactories, _fieldMappings, null, null, -1, null);
         var baseQuery = CoraxQueryBuilder.BuildQuery(parameters);
-        var coraxPageSize = CoraxGetPageSize(_indexSearcher, facetQuery.Query.PageSize, query);
+        var coraxPageSize = CoraxBufferSize(_indexSearcher, facetQuery.Query.PageSize, query);
         var ids = CoraxIndexReadOperation.QueryPool.Rent(coraxPageSize);
 
         using var analyzersScope = new AnalyzersScope(_indexSearcher, _fieldMappings, _index.Definition.HasDynamicFields);
@@ -263,6 +263,7 @@ public class CoraxIndexFacetedReadOperation : IndexFacetReadOperationBase
 
         switch (fieldReader.Type)
         {
+            case IndexEntryFieldType.ListWithEmpty:
             case IndexEntryFieldType.ListWithNulls:
             case IndexEntryFieldType.List:
             case IndexEntryFieldType.TupleList:
