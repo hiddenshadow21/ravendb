@@ -94,7 +94,7 @@ function BumpVersion ($projectDir, $versionPrefix, $buildType, $dryRun = $False)
     write-host "New version is: $newVersion"
 
     $repo = @{
-        "Owner"  = "ravendb"
+        "Owner"  = "hiddenshadow21"
         "Name"   = "ravendb"
         "Branch" = "v5.2"
     }

@@ -18,6 +18,6 @@ $version = $versionObj.Version
 $buildType = $versionObj.BuildType.ToLower()
 
 if ($buildType -eq 'stable') {
-    CreateRelease $version "ravendb" "ravendb" $env:vcsRootBranch $env:GITHUB_ACCESS_TOKEN $env:ravendbChangelog $DryRun
+    CreateRelease $version "hiddenshadow21" "ravendb" $env:vcsRootBranch $env:GITHUB_ACCESS_TOKEN $env:ravendbChangelog $DryRun
     BumpVersion $PROJECT_DIR $versionObj.VersionPrefix $buildType $DryRun
 }
