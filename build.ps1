@@ -13,7 +13,6 @@ param(
     [switch]$JustNuget,
     [switch]$Debug,
     [switch]$NoBundling,
-    [switch]$DryRunVersionBump = $false,
     [switch]$DryRunSign = $false,
     [switch]$Help)
 
