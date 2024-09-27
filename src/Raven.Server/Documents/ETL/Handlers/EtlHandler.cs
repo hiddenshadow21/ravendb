@@ -15,6 +15,7 @@ namespace Raven.Server.Documents.ETL.Handlers
 {
     public class EtlHandler : DatabaseRequestHandler
     {
+        //test
         [RavenAction("/databases/*/etl/stats", "GET", AuthorizationStatus.ValidUser, EndpointType.Read, IsDebugInformationEndpoint = true)]
         public async Task GetStats()
         {
