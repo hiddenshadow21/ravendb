@@ -142,7 +142,7 @@ function BuildUbuntuDockerImage ($version, $arch) {
     Write-Host "Tags: $tags"
     $fullNameTag = $tags[0]
 
-    docker buildx build --provenance=true --sbom=true $DockerfileDir -f "$($DockerfileDir)/Dockerfile.$($arch)" -t "$fullNameTag" --build-arg "PATH_TO_DEB=$pathToDeb" --build-arg "RAVEN_USER_ID=999" --build-arg "RAVEN_GROUP_ID=999"
+    docker buildx build --provenance=true --sbom=true $DockerfileDir -f "$($DockerfileDir)/Dockerfile.$($arch)" -t "$fullNameTag" --build-arg "PATH_TO_DEB=$pathToDeb" --build-arg "RAVEN_USER_ID=999" --build-arg "RAVEN_GROUP_ID=999" --load
     CheckLastExitCode
     
     foreach ($tag in $tags[1..$tags.Length]) {
