@@ -107,7 +107,7 @@ public static class GenerateEmbeddings
                 {
                     var rentedMem = Allocator.Rent(mem.Length + sizeof(float));
 
-                    destination = MemoryMarshal.Cast<byte, sbyte>(rentedMem);
+                    destination = MemoryMarshal.Cast<byte, sbyte>(rentedMem.AsSpan());
                 }
 
                 bool result = VectorQuantizer.TryToInt8(mem.ToSpan<float>().Slice(0, usedBytes / sizeof(float)), destination, out usedBytes);
