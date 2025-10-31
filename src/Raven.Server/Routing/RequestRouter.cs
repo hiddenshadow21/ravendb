@@ -154,7 +154,7 @@ namespace Raven.Server.Routing
                 }
 
 
-                await UnlikelyFailAuthorizationAsync(context, databaseName, feature, route.AuthorizationStatus);
+                await UnlikelyFailAuthorizationAsync(context, databaseName, feature, route.AuthorizationStatus, _ravenServer.Certificate?.ServerCertificate);
                 return (false, feature.Status, feature.Certificate?.Thumbprint);
             }
 
@@ -168,7 +168,7 @@ namespace Raven.Server.Routing
 
                 feature.WaitingForTwoFactorAuthentication();
 
-                await UnlikelyFailAuthorizationAsync(context, databaseName, feature, route.AuthorizationStatus);
+                await UnlikelyFailAuthorizationAsync(context, databaseName, feature, route.AuthorizationStatus, _ravenServer.Certificate?.ServerCertificate);
 
                 return (false, AuthenticationStatus.TwoFactorAuthFromInvalidLimit, feature.Certificate?.Thumbprint);
             }
@@ -461,9 +461,11 @@ namespace Raven.Server.Routing
             }
         }
 
-        public static async ValueTask UnlikelyFailAuthorizationAsync(HttpContext context, string database,
+        public static async ValueTask UnlikelyFailAuthorizationAsync(HttpContext context,
+            string database,
             AuthenticateConnection feature,
-            AuthorizationStatus authorizationStatus)
+            AuthorizationStatus authorizationStatus,
+            X509Certificate2 certificateServerCertificate = null)
         {
             using (var ctx = JsonOperationContext.ShortTermSingleUse())
             await using (var writer = new AsyncBlittableJsonTextWriter(ctx, context.Response.Body))
@@ -480,8 +482,8 @@ namespace Raven.Server.Routing
                     context.Response.Headers["Location"] = $"/auth-error.html?ae={(int?)feature?.Status}&ao={(int)authorizationStatus}&rt={resourceType}";
                     return;
                 }
-
-                var message = GetFailedAuthorizationMessage(context, resourceType, database, feature?.Certificate, feature?.Status ?? AuthenticationStatus.None, authorizationStatus, out var statusCode);
+                
+                var message = GetFailedAuthorizationMessage(context, resourceType, database, feature?.Certificate, feature?.Status ?? AuthenticationStatus.None, authorizationStatus, out var statusCode, certificateServerCertificate);
 
                 context.Response.StatusCode = (int)statusCode;
 
@@ -493,7 +495,14 @@ namespace Raven.Server.Routing
             }
         }
 
-        public static string GetFailedAuthorizationMessage(HttpContext context, ResourceType resourceType, string database, X509Certificate2 certificate, AuthenticationStatus authenticationStatus, AuthorizationStatus authorizationStatus, out HttpStatusCode statusCode)
+        public static string GetFailedAuthorizationMessage(HttpContext context,
+            ResourceType resourceType,
+            string database,
+            X509Certificate2 certificate,
+            AuthenticationStatus authenticationStatus,
+            AuthorizationStatus authorizationStatus,
+            out HttpStatusCode statusCode,
+            X509Certificate2 certificateServerCertificate = null)
         {
             string message;
             statusCode = HttpStatusCode.Forbidden;
@@ -514,6 +523,8 @@ namespace Raven.Server.Routing
                 {
                     message = $"The supplied client certificate '{name}' is unknown to the server. In order to register your certificate please contact your system administrator.";
                     message += context.Request.IsFromClientApi() == false ? BrowserCertificateMessage : string.Empty;
+
+                    message += $"Currently using server certificate '{certificateServerCertificate?.GetDisplayName()}' (Thumbprint: {certificateServerCertificate?.Thumbprint})";
                 }
                 else if (authenticationStatus == AuthenticationStatus.UnfamiliarIssuer)
                 {

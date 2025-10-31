@@ -425,6 +425,7 @@ namespace Raven.Server.Utils
             log?.AppendLine($"serialNumber = {new BigInteger(serialNumberBytes)}");
             log?.AppendLine($"notBefore = {certificate.NotBefore}");
             log?.AppendLine($"notAfter = {certificate.NotAfter}");
+            log?.AppendLine($"thumbprint = {certificate.Thumbprint}");
 
             // Export the certificate to a PFX byte array.
             certBytes = certificate.Export(X509ContentType.Pfx, string.Empty);
@@ -486,7 +487,7 @@ namespace Raven.Server.Utils
             var notBefore = DateTimeOffset.UtcNow.Date;
             var notAfter = notBefore.AddYears(2);
             var cert = request.CreateSelfSigned(notBefore, notAfter);
-            log?.AppendLine($"Certificate created. NotBefore: {cert.NotBefore}, NotAfter: {cert.NotAfter}");
+            log?.AppendLine($"Certificate created. NotBefore: {cert.NotBefore}, NotAfter: {cert.NotAfter}, Thumbprint: {cert.Thumbprint}");
 
             return cert;
         }

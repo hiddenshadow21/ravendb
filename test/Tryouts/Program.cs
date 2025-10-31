@@ -1,15 +1,19 @@
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
 using Tests.Infrastructure;
 using Raven.Server.Utils;
 using Xunit;
 using FastTests;
 using Raven.Client.Documents.Operations.AI;
+using SlowTests.Issues;
 using SlowTests.Server.Documents.AI;
 
 namespace Tryouts;
@@ -23,22 +27,40 @@ public static class Program
 
     public static async Task Main(string[] args)
     {
-        Console.WriteLine(Process.GetCurrentProcess().Id);
-        var sources = EventSource.GetSources();
-        var runtime = sources.FirstOrDefault(x => x.Name == "System.Runtime");
-        runtime?.Dispose();
-        for (int i = 0; i < 1; i++)
+        for (int i = 0; i < 10; i++)
         {
-            Console.WriteLine($"Starting to run {i}");
-            
+            Console.WriteLine($"Starting run {i}");
             try
             {
                 using (var testOutputHelper = new ConsoleTestOutputHelper())
-                using (var test = new ChatCompletionClientTests(testOutputHelper))
+                using (var test = new RavenDB_19148(testOutputHelper))
+                using (var test2 = new RavenDB_21535(testOutputHelper))
                 {
-                    DebuggerAttachedTimeout.DisableLongTimespan = true;
-                    var p = GetGenAiConfig(RavenAiIntegration.OpenAi);
-                    await test.GenAiClientSanityTest(p.Options, p.Configuration);
+                    var tasks = new List<Task>();
+                
+                    tasks.Add(RunTestAsTask(test2));
+                    
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(GenerateCerts());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(GenerateCerts());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(GenerateCerts());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(test.CanAuthUsingWellKnownIssuer());
+                    tasks.Add(RunTestAsTask(test2));
+                    tasks.Add(RunTestAsTask(test2));
+                
+                    Task.WaitAll(tasks.ToArray());
                 }
             }
             catch (Exception e)
@@ -48,6 +70,33 @@ public static class Program
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }
+    }
+
+    private static Task RunTestAsTask(RavenDB_21535 test2)
+    {
+        return Task.Run(() => test2.KnownIssuerCert_CanAccess_WithValidSAN(publicDomain: "a.localhost", san: "*.localhost"));
+    }
+
+    public static Task GenerateCerts()
+    {
+        var task = Task.Run(() =>
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                var sb = new StringBuilder();
+                sb.Append("### Random generate - ");
+                var ca = CertificateUtils.CreateCertificateAuthorityCertificate("auth", out var caKey, out var caName);
+                CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey("admin", caName, caKey, true, false,
+                    DateTime.UtcNow.Date.AddMonths(3), out var certBytes);
+
+                var c = new X509Certificate2(certBytes);
+                sb.Append($"CA: {ca.GetDisplayName()} ({ca.Thumbprint})");
+                sb.Append($"Client: {c.GetDisplayName()} ({c.Thumbprint})");
+                Console.WriteLine(sb.ToString());
+            }
+        });
+
+        return task;
     }
 
     private static (RavenTestBase.Options Options, GenAiConfiguration Configuration) GetGenAiConfig(RavenAiIntegration type, RavenDatabaseMode databaseMode = RavenDatabaseMode.Single)

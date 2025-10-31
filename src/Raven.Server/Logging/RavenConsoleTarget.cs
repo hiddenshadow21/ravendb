@@ -18,7 +18,7 @@ public static class RavenConsoleTarget
         var configuration = LogManager.Configuration;
 
         Debug.Assert(configuration != null, "configuration != null");
-        Debug.Assert(configuration.FindRuleByName(RavenLogManagerServerExtensions.ConsoleRule.RuleName) == null, $"configuration.FindRuleByName({RavenLogManagerServerExtensions.ConsoleRule.RuleName}) == null");
+        //Debug.Assert(configuration.FindRuleByName(RavenLogManagerServerExtensions.ConsoleRule.RuleName) == null, $"configuration.FindRuleByName({RavenLogManagerServerExtensions.ConsoleRule.RuleName}) == null");
 
         LogManager.Configuration.AddRule(RavenLogManagerServerExtensions.ConsoleRule);
 

@@ -69,6 +69,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Raven.Server\Raven.Server.csproj" />
     <ProjectReference Include="..\RachisTests\RachisTests.csproj" />
+    <ProjectReference Include="..\SlowTests.Issues\SlowTests.Issues.csproj" />
+    <ProjectReference Include="..\SlowTests.Tools\SlowTests.Tools.csproj" />
     <ProjectReference Include="..\SlowTests\SlowTests.csproj" />
   </ItemGroup>
 

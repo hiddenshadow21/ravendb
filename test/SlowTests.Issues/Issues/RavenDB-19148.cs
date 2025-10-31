@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
 using Raven.Client.Documents;
 using Raven.Client.ServerWide.Operations;
@@ -20,10 +21,13 @@ public class RavenDB_19148 : ClusterTestBase
     [RavenFact(RavenTestCategory.Certificates | RavenTestCategory.Cluster)]
     public async Task CanAuthUsingWellKnownIssuer()
     {
-        var ca = CertificateUtils.CreateCertificateAuthorityCertificate("auth", out var caKey, out var caName);
+        var sb = new StringBuilder();
+        sb.Append("CanAuthUsingWellKnownIssuer: ");
+        var ca = CertificateUtils.CreateCertificateAuthorityCertificate("auth", out var caKey, out var caName, sb);
         CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey("admin", caName, caKey, true, false,
-            DateTime.UtcNow.Date.AddMonths(3), out var certBytes);
+            DateTime.UtcNow.Date.AddMonths(3), out var certBytes, log: sb);
 
+        Output.WriteLine(sb.ToString());
         byte[] caBytes = ca.Export(X509ContentType.Cert);
         var result = await CreateRaftClusterWithSsl(1, true, customSettings: new Dictionary<string, string>
         {

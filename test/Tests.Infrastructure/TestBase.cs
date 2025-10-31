@@ -605,7 +605,7 @@ namespace FastTests
 
                 configuration.Initialize();
 
-                configuration.Logs.MinLevel = LogLevel.Off;
+                //configuration.Logs.MinLevel = LogLevel.Off;
                 configuration.Server.Name = ServerName;
                 configuration.Server.MaxTimeForTaskToWaitForDatabaseToLoad = new TimeSetting(60, TimeUnit.Seconds);
                 configuration.Licensing.EulaAccepted = true;

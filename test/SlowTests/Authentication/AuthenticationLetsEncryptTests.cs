@@ -35,6 +35,7 @@ using Raven.Client.Json;
 using Raven.Server.ServerWide;
 using Raven.Client.Util;
 using System.Threading;
+using Raven.Server.Logging;
 
 namespace SlowTests.Authentication
 {
@@ -407,6 +408,8 @@ namespace SlowTests.Authentication
         [RavenRetryFact(RavenTestCategory.Certificates | RavenTestCategory.Sharding, delayBetweenRetriesMs: 1000)]
         public async Task CertificateReplaceSharded()
         {
+            RavenConsoleTarget.Enable();
+            
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(300)))
             {
                 var acmeStagingUrl = "https://acme-staging-v02.api.letsencrypt.org/directory";

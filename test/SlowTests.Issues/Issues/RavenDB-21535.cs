@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using Raven.Server;
 using Raven.Server.Config;
+using Raven.Server.Logging;
 using Raven.Server.Utils;
 using Tests.Infrastructure;
 using Xunit;
@@ -19,7 +21,9 @@ namespace SlowTests.Issues
         [RavenFact(RavenTestCategory.Certificates)]
         public void KnownIssuerCert_CanNotAccess_WithoutSAN()
         {
-            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _);
+            var sb = new StringBuilder();
+            sb.Append("KnownIssuerCert_CanNotAccess_WithoutSAN");
+            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _, sb);
             var caBase64 = Convert.ToBase64String(ca.Export(X509ContentType.Cert));
 
             CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey(
@@ -29,7 +33,9 @@ namespace SlowTests.Issues
                 isClientCertificate: true,
                 isCaCertificate: false,
                 notAfter: DateTime.UtcNow.Date.AddMonths(1),
-                certBytes: out var clientCertBytes);
+                certBytes: out var clientCertBytes,
+                log: sb);
+            Output.WriteLine(sb.ToString());
 
             var client = new X509Certificate2(clientCertBytes);
 
@@ -55,7 +61,10 @@ namespace SlowTests.Issues
         [InlineData("localhost", "localhost")]
         public void KnownIssuerCert_CanAccess_WithValidSAN(string publicDomain, string san)
         {
-            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _);
+            
+            var sb = new StringBuilder();
+            sb.Append("KnownIssuerCert_CanAccess_WithValidSAN");
+            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _, sb);
             var caBase64 = Convert.ToBase64String(ca.Export(X509ContentType.Cert));
 
             CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey(
@@ -66,7 +75,9 @@ namespace SlowTests.Issues
                 isCaCertificate: false,
                 notAfter: DateTime.UtcNow.Date.AddMonths(1),
                 certBytes: out var clientCertBytes,
-                sans: new[] { san });
+                sans: new[] { san },
+                log: sb);
+            Output.WriteLine(sb.ToString());
 
             var client = new X509Certificate2(clientCertBytes);
 
@@ -92,7 +103,9 @@ namespace SlowTests.Issues
         [InlineData("aaa.localhost", "aaa.localhost.bbb")]
         public void KnownIssuerCert_CanNotAccess_WithInvalidSAN(string publicDomain, string san)
         {
-            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _);
+            var sb = new StringBuilder();
+            sb.Append("KnownIssuerCert_CanNotAccess_WithInvalidSAN");
+            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _, sb);
             var caBase64 = Convert.ToBase64String(ca.Export(X509ContentType.Cert));
 
             CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey(
@@ -103,7 +116,9 @@ namespace SlowTests.Issues
                 isCaCertificate: false,
                 notAfter: DateTime.UtcNow.Date.AddMonths(1),
                 certBytes: out var clientCertBytes,
-                sans: new[] { san });
+                sans: new[] { san },
+                log: sb);
+            Output.WriteLine(sb.ToString());
 
             var client = new X509Certificate2(clientCertBytes);
 
@@ -124,7 +139,9 @@ namespace SlowTests.Issues
         [RavenFact(RavenTestCategory.Certificates)]
         public void KnownIssuerCert_CanAccess_WhenSANValidation_IsDisabled_AndNotMatchingServerDomainName()
         {
-            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _);
+            var sb = new StringBuilder();
+            sb.Append("KnownIssuerCert_CanAccess_WhenSANValidation_IsDisabled_AndNotMatchingServerDomainName");
+            var ca = CertificateUtils.CreateCertificateAuthorityCertificate("ca", out var caKeyPair, out _, sb);
             var caBase64 = Convert.ToBase64String(ca.Export(X509ContentType.Cert));
 
             CertificateUtils.CreateSelfSignedCertificateBasedOnPrivateKey(
@@ -135,7 +152,9 @@ namespace SlowTests.Issues
                 isCaCertificate: false,
                 notAfter: DateTime.UtcNow.Date.AddMonths(1),
                 certBytes: out var clientCertBytes,
-                sans: new[] { LocalDomainName });
+                sans: new[] { LocalDomainName },
+                log: sb);
+            Output.WriteLine(sb.ToString());
 
             var client = new X509Certificate2(clientCertBytes);
 

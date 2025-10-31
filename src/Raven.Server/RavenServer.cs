@@ -3282,6 +3282,7 @@ namespace Raven.Server
 
             foreach (var knownIssuer in WellKnownIssuers)
             {
+                Logger.Info($"Checking if {cert.GetDisplayName()} ({cert.Thumbprint}) is issued by {knownIssuer.GetDisplayName()} ({knownIssuer.Thumbprint})");
                 using var chain = new X509Chain(false);
                 chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
                 chain.ChainPolicy.DisableCertificateDownloads = true;
@@ -3291,10 +3292,12 @@ namespace Raven.Server
                 if (chain.Build(cert))
                 {
                     issuer = knownIssuer.SubjectName.Name + " - " + knownIssuer.Thumbprint;
+                    Logger.Info($"Validated {cert.GetDisplayName()} ({cert.Thumbprint}) is issued by {knownIssuer.GetDisplayName()} ({knownIssuer.Thumbprint})");
                     return true;
                 }
+                
+                Logger.Info($"{cert.GetDisplayName()} ({cert.Thumbprint}) is NOT issued by {knownIssuer.GetDisplayName()} ({knownIssuer.Thumbprint})");
             }
-
             return false;
         }
 
