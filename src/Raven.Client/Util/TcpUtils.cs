@@ -8,6 +8,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Raven.Client.ServerWide.Commands;
@@ -184,7 +185,7 @@ namespace Raven.Client.Util
             ,
             CancellationToken token = default
 #endif
-            )
+        )
         {
             var networkStream = tcpClient.GetStream();
             if (timeout != null)
@@ -201,25 +202,67 @@ namespace Raven.Client.Util
                 (sender, actualCert, chain, errors) => expectedCert.Equals(actualCert));
 
             var targetHost = new Uri(info.Url).Host;
-            var clientCertificates = new X509CertificateCollection(new X509Certificate[] { storeCertificate });
 
-#if !NETSTANDARD
-            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            // [CHANGE 1] Handle null storeCertificate safely
+            X509CertificateCollection clientCertificates;
+            if (storeCertificate != null)
             {
-                TargetHost = targetHost,
-                ClientCertificates = clientCertificates,
-                EnabledSslProtocols = SupportedSslProtocols,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-                CipherSuitesPolicy = cipherSuitesPolicy
+                clientCertificates = new X509CertificateCollection(new X509Certificate[] { storeCertificate });
             }
+            else
+            {
+                clientCertificates = new X509CertificateCollection();
+            }
+
+            try
+            {
 #if !NETSTANDARD
-                ,
-                token
+                await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                    {
+                        TargetHost = targetHost,
+                        ClientCertificates = clientCertificates,
+                        EnabledSslProtocols = SupportedSslProtocols,
+                        CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                        CipherSuitesPolicy = cipherSuitesPolicy
+                    }
+#if !NETSTANDARD
+                    ,
+                    token
 #endif
-            ).ConfigureAwait(false);
+                ).ConfigureAwait(false);
 #else
-            await sslStream.AuthenticateAsClientAsync(targetHost, clientCertificates, SupportedSslProtocols, checkCertificateRevocation: false).ConfigureAwait(false);
+    await sslStream.AuthenticateAsClientAsync(targetHost, clientCertificates, SupportedSslProtocols, checkCertificateRevocation: false).ConfigureAwait(false);
 #endif
+            }
+            catch (Exception e)
+            {
+                // ignored
+            }
+
+            // [CHANGE 2] Trigger Windows Auth Handshake if no Cert provided
+            if (storeCertificate == null)
+            {
+                try
+                {
+                    // Wrap the SSL stream (which is now encrypted but anonymous) in NegotiateStream
+                    var negotiateStream = new NegotiateStream(sslStream, leaveInnerStreamOpen: true);
+
+                    await negotiateStream.AuthenticateAsClientAsync(
+                        CredentialCache.DefaultNetworkCredentials,
+                        "", // Target Name (SPN). Empty string usually works for NTLM/Local.
+                        ProtectionLevel.EncryptAndSign,
+                        TokenImpersonationLevel.Identification
+                    ).ConfigureAwait(false);
+
+                    return negotiateStream; // Return the wrapped stream!
+                }
+                catch (Exception ex)
+                {
+                    // Clean up if auth fails
+                    sslStream.Dispose();
+                    throw new InvalidOperationException("Failed to authenticate using Windows Authentication (Negotiate).", ex);
+                }
+            }
 
             return sslStream;
         }

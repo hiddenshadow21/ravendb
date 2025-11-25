@@ -234,6 +234,21 @@ namespace Raven.Server.Config.Categories
         [TimeUnit(TimeUnit.Days)]
         [ConfigurationEntry("Security.Certificate.ExpiringThresholdInDays", ConfigurationEntryScope.ServerWideOnly)]
         public TimeSetting CertificateExpiringThreshold { get; set; }
+        
+        [Description("Skip client certificate when using Windows auth.")]
+        [DefaultValue(false)]
+        [ConfigurationEntry("Security.DoNotAskForClientCertificate", ConfigurationEntryScope.ServerWideOnly)]
+        public bool DoNotAskForClientCertificate { get; set; }
+        
+        [Description("Windows auth")]
+        [DefaultValue(false)]
+        [ConfigurationEntry("Security.WindowsAuth.Enabled", ConfigurationEntryScope.ServerWideOnly)]
+        public bool WindowsAuthEnabled { get; set; }
+        
+        [Description("Windows auth admin users")]
+        [DefaultValue(null)]
+        [ConfigurationEntry("Security.WindowsAuth.WellKnownUsers.Admin", ConfigurationEntryScope.ServerWideOnly)]
+        public string WindowsAuthWellKnownAdmins { get; set; }
 
         internal bool? IsUnsecureAccessSetupValid { get; private set; }
 
@@ -243,7 +258,7 @@ namespace Raven.Server.Config.Categories
             string.IsNullOrWhiteSpace(CertificatePath) == false ||
             string.IsNullOrWhiteSpace(CertificateLoadExec) == false;
 
-        public bool AuthenticationEnabled => IsCertificateConfigured;
+        public bool AuthenticationEnabled => IsCertificateConfigured || WindowsAuthEnabled;
 
 #if !RVN
         internal static void Validate(RavenConfiguration configuration)

@@ -116,9 +116,23 @@ namespace Raven.Server.Routing
                         }
                         else
                         {
+                            string identityInfo;
+                            if (feature.Certificate != null)
+                            {
+                                identityInfo = $"certificate '{feature.Certificate.GetDisplayName()} ({feature.Certificate.Thumbprint})'";
+                            }
+                            else if (context.User?.Identity?.IsAuthenticated == true)
+                            {
+                                identityInfo = $"Windows User '{context.User.Identity.Name}'";
+                            }
+                            else
+                            {
+                                identityInfo = "Unauthenticated Client";
+                            }
+
                             auditLog.Audit($"Connection from {context.Connection.RemoteIpAddress}:{context.Connection.RemotePort} " +
-                                $"with certificate '{feature.Certificate?.GetDisplayName()} ({feature.Certificate?.Thumbprint})', status: {feature.StatusForAudit}, " +
-                                $"databases: [{string.Join(", ", feature.AuthorizedDatabases.Keys)}]");
+                                           $"with {identityInfo}, status: {feature.StatusForAudit}, " +
+                                           $"databases: [{string.Join(", ", feature.AuthorizedDatabases.Keys)}]");
 
                             var conLifetime = context.Features.Get<IConnectionLifetimeFeature>();
                             if (conLifetime != null)
@@ -146,13 +160,34 @@ namespace Raven.Server.Routing
                 {
                     var httpConnectionFeature = context.Features.Get<IHttpConnectionFeature>();
 
+                    // 1. Capture the Windows User before it gets wiped
+                    var existingWindowsUser = feature.User;
+
+                    // 2. Run the existing Certificate Logic
+                    // This returns a new object based ONLY on the certificate (User is now null)
                     feature = _ravenServer.AuthenticateConnectionCertificate(feature.Certificate, httpConnectionFeature);
+
+                    // 3. Restore the Windows User
+                    if (existingWindowsUser != null)
+                    {
+                        feature.User = existingWindowsUser;
+                    }
+
+                    // 4. "Hybrid" Fallback:
+                    // If the Certificate is STILL bad (Unfamiliar), but the Windows User is valid,
+                    // we should grant access based on Windows Auth.
+                    if (feature.Status == AuthenticationStatus.UnfamiliarCertificate && 
+                        existingWindowsUser?.Identity?.IsAuthenticated == true)
+                    {
+                        // Map Windows User to Permissions (Same logic as Startup.cs)
+                        feature = _ravenServer.AuthenticateConnectionWindowsUser(existingWindowsUser, httpConnectionFeature);
+                    }
+
                     context.Features.Set<IHttpAuthenticationFeature>(feature);
 
                     if (CanAccessRoute(route, context, databaseName, feature))
                         return (true, feature.Status, feature.Certificate?.Thumbprint);
                 }
-
 
                 await UnlikelyFailAuthorizationAsync(context, databaseName, feature, route.AuthorizationStatus);
                 return (false, feature.Status, feature.Certificate?.Thumbprint);
@@ -497,10 +532,23 @@ namespace Raven.Server.Routing
         {
             string message;
             statusCode = HttpStatusCode.Forbidden;
-            if (certificate == null || authenticationStatus is AuthenticationStatus.None or AuthenticationStatus.NoCertificateProvided)
+            if (certificate == null)
             {
-                message = "This server requires client certificate for authentication, but none was provided by the client. Did you forget to install the certificate?";
-                message += context.Request.IsFromClientApi() == false ? BrowserCertificateMessage : string.Empty;
+                // Case 1: Windows User logged in, but doesn't have permission (e.g. standard user trying to be Admin)
+                if (context.User?.Identity?.IsAuthenticated == true)
+                {
+                    message = $"Access to {GetResourceName()} was denied for user '{context.User.Identity.Name}'.";
+                }
+                // Case 2: Truly unauthenticated (and the Challenge didn't work or was cancelled)
+                else if (authenticationStatus is AuthenticationStatus.None or AuthenticationStatus.NoCertificateProvided)
+                {
+                    message = "This server requires client certificate or Windows Authentication, but neither was provided.";
+                    message += context.Request.IsFromClientApi() == false ? BrowserCertificateMessage : string.Empty;
+                }
+                else
+                {
+                    message = "Access to the server was denied.";
+                }
             }
             else
             {

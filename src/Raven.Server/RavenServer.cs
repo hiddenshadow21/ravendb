@@ -13,10 +13,12 @@ using System.Net.Sockets;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Hosting;
@@ -309,6 +311,9 @@ namespace Raven.Server
                             services.Configure<DeflateCompressionProviderOptions>(options => { options.Level = Configuration.Http.DeflateResponseCompressionLevel; });
 
                             services.AddResponseCompression();
+                            
+                            services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+                                .AddNegotiate();
                         }
 
                         services.AddSingleton(Router);
@@ -1726,6 +1731,7 @@ namespace Raven.Server
             public Dictionary<string, DatabaseAccess> AuthorizedDatabases = new Dictionary<string, DatabaseAccess>(StringComparer.OrdinalIgnoreCase);
             private Dictionary<string, DatabaseAccess> _caseSensitiveAuthorizedDatabases = new Dictionary<string, DatabaseAccess>();
             public X509Certificate2 Certificate;
+            public ClaimsPrincipal User { get; set; }
             public CertificateDefinition Definition;
             public int WrittenToAuditLog;
 
@@ -1782,8 +1788,6 @@ namespace Raven.Server
                     }
                 }
             }
-
-            ClaimsPrincipal IHttpAuthenticationFeature.User { get; set; }
 
             public string WrongProtocolMessage;
 
@@ -2069,6 +2073,58 @@ namespace Raven.Server
 
             cert = ctx.ReadObject(newCertDef.ToJson(), "Client/Certificate/Definition");
         }
+        
+        public AuthenticateConnection AuthenticateConnectionWindowsUser(ClaimsPrincipal user, object connectionInfo)
+        {
+            var authenticationStatus = new AuthenticateConnection(TwoFactor)
+            {
+                User = user
+            };
+            var wellKnown = Configuration.Security.WindowsAuthWellKnownAdmins;
+            if (user == null || user.Identity == null || string.IsNullOrEmpty(user.Identity.Name))
+            {
+                authenticationStatus.Status = AuthenticationStatus.NoCertificateProvided;
+            }
+            else if (user.Identity.IsAuthenticated == false)
+            {
+                authenticationStatus.Status = AuthenticationStatus.UnfamiliarCertificate;
+            }
+            else if (wellKnown != null && wellKnown.Contains(user.Identity.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                authenticationStatus.Status = AuthenticationStatus.ClusterAdmin;
+            }
+            else
+            {
+                using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                using (ctx.OpenReadTransaction())
+                {
+                    // todo bartek: migrate from cert to windows user
+                    /*var cert = ServerStore.Cluster.GetCertificateByThumbprint(ctx, certificate.Thumbprint) ??
+                               ServerStore.Cluster.GetLocalStateByThumbprint(ctx, certificate.Thumbprint);
+
+                    if (cert != null)
+                    {
+                        var definition = JsonDeserializationServer.CertificateDefinition(cert);
+
+                        authenticationStatus.SetBasedOnCertificateDefinition(definition);
+
+                        var hasTwoFactorKey = cert.TryGet(nameof(PutCertificateCommand.TwoFactorAuthenticationKey), out string _);
+
+                        authenticationStatus.RequiresTwoFactor = hasTwoFactorKey;
+
+                        if (authenticationStatus.RequiresTwoFactor && TwoFactor.ValidateTwoFactorConnectionLimits(certificate.Thumbprint) == false)
+                        {
+                            authenticationStatus.WaitingForTwoFactorAuthentication();
+                            return authenticationStatus;
+                        }
+                    }*/
+                    
+                    authenticationStatus.Status = AuthenticationStatus.ClusterAdmin;
+                }
+            }
+
+            return authenticationStatus;
+        }
 
         private static string GetRemoteAddress(object connectionInfo)
         {
@@ -2283,6 +2339,7 @@ namespace Raven.Server
 
                 EndPoint remoteEndPoint = null;
                 X509Certificate2 cert = null;
+                ClaimsPrincipal claimsPrincipal = null;
                 TcpConnectionHeaderMessage header = null;
 
                 try
@@ -2304,6 +2361,33 @@ namespace Raven.Server
                     try
                     {
                         (stream, cert) = await AuthenticateAsServerIfSslNeeded(stream);
+                        
+                        if (cert == null && Configuration.Security.WindowsAuthEnabled)
+                        {
+                            try
+                            {
+                                // Note: This modifies the protocol. The CLIENT must initiate the Negotiate handshake.
+                                // We use a short timeout so we don't hang if a standard client connects.
+                                var negotiateStream = new NegotiateStream(stream, leaveInnerStreamOpen: true);
+
+                                // You might want to make this timeout configurable
+                                var authTask = negotiateStream.AuthenticateAsServerAsync();
+                                if (await Task.WhenAny(authTask, Task.Delay(2000)) == authTask)
+                                {
+                                    await authTask; // Throw if failed
+                                    if (negotiateStream.IsAuthenticated)
+                                    {
+                                        claimsPrincipal = new ClaimsPrincipal(negotiateStream.RemoteIdentity);
+                                        stream = negotiateStream; // CRITICAL: Use the wrapped stream!
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                if (_tcpLogger.IsDebugEnabled)
+                                    _tcpLogger.Debug("Windows Auth handshake failed or timed out. Proceeding as anonymous.", ex);
+                            }
+                        }
                     }
                     catch (Exception e)
                     {
@@ -2325,7 +2409,8 @@ namespace Raven.Server
                             ContextPool = _tcpContextPool,
                             Stream = stream,
                             TcpClient = tcpClient,
-                            Certificate = cert
+                            Certificate = cert,
+                            ClaimsPrincipal = claimsPrincipal
                         };
 
                         try
@@ -2514,7 +2599,7 @@ namespace Raven.Server
                     await RespondToTcpConnection(stream, context, $"Not supporting version {header.OperationVersion} for {header.Operation}", TcpConnectionStatus.TcpVersionMismatch, supported);
                 }
 
-                bool authSuccessful = TryAuthorize(Configuration, tcp.Stream, tcp.Certificate, header, tcpClient, out var err, out TcpConnectionStatus statusResult);
+                bool authSuccessful = TryAuthorize(Configuration, tcp.Stream, tcp.Certificate, header, tcpClient, out var err, out TcpConnectionStatus statusResult, tcp.ClaimsPrincipal);
                 //At this stage the error is not relevant.
 
                 if (header.LicensedFeatures != null)
@@ -2924,7 +3009,8 @@ namespace Raven.Server
             TcpConnectionHeaderMessage header,
             TcpClient tcpClient,
             out string msg,
-            out TcpConnectionStatus statusResult)
+            out TcpConnectionStatus statusResult,
+            ClaimsPrincipal claimsPrincipal = null)
         {
             msg = null;
             if (header.ServerId != null && header.ServerId != ServerStore.ServerId.ToString())
@@ -2946,7 +3032,15 @@ namespace Raven.Server
                 return false;
             }
 
-            var auth = AuthenticateConnectionCertificate(certificate, tcpClient);
+            AuthenticateConnection auth;
+            if (certificate == null && Configuration.Security.WindowsAuthEnabled && claimsPrincipal is { Identity.IsAuthenticated: true })
+            {
+                auth = AuthenticateConnectionWindowsUser(claimsPrincipal, tcpClient);
+            }
+            else
+            {
+                auth = AuthenticateConnectionCertificate(certificate, tcpClient);
+            }
 
             switch (auth.Status)
             {

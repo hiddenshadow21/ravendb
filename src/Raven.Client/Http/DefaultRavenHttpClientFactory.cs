@@ -85,6 +85,8 @@ internal sealed class DefaultRavenHttpClientFactory : IRavenHttpClientFactory
         var httpMessageHandler = new HttpClientHandler();
 
         ConfigureHttpMessageHandler(httpMessageHandler, certificate, setSslProtocols, useHttpDecompression, hasExplicitlySetDecompressionUsage, pooledConnectionLifetime, pooledConnectionIdleTimeout, configureHttpMessageHandler);
+        
+        httpMessageHandler.Credentials = CredentialCache.DefaultCredentials;
 
         return httpMessageHandler;
     }

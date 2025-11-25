@@ -38,7 +38,7 @@ namespace Raven.Server.Https
             {
                 o.SslProtocols = SslProtocols.Tls13 | SslProtocols.Tls12;
                 o.CheckCertificateRevocation = false;
-                o.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
+                o.ClientCertificateMode = server.Configuration.Security.DoNotAskForClientCertificate ? ClientCertificateMode.NoCertificate : ClientCertificateMode.AllowCertificate;
                 o.ClientCertificateValidation = (certificate, chain, sslPolicyErrors) =>
                 {
                     if (certificate == null)

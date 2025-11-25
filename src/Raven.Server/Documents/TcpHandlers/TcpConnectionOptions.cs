@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using Raven.Client.ServerWide.Tcp;
@@ -59,6 +61,7 @@ namespace Raven.Server.Documents.TcpHandlers
         private readonly SemaphoreSlim _running = new SemaphoreSlim(1);
         private string _debugTag;
         public X509Certificate2 Certificate;
+        public ClaimsPrincipal ClaimsPrincipal;
 
         public override string ToString()
         {

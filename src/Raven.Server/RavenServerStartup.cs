@@ -5,9 +5,12 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
@@ -58,6 +61,8 @@ namespace Raven.Server
                 KeepAliveInterval = TimeSpan.FromHours(24)
             });
 
+            app.UseAuthentication();
+            
             _router = app.ApplicationServices.GetService<RequestRouter>();
             _server = app.ApplicationServices.GetService<RavenServer>();
 
@@ -70,7 +75,7 @@ namespace Raven.Server
                     context => context.Request.Path.StartsWithSegments("/studio") == false && context.Request.Path.StartsWithSegments("/wizard") == false,
                     appBuilder => appBuilder.UseResponseCompression());
             }
-
+            
             if (IsServerRunningInASafeManner() == false)
             {
                 app.Use(_ => UnsafeRequestHandler);
@@ -175,6 +180,47 @@ namespace Raven.Server
 
             try
             {
+                // 1. Check if we already have a Windows User (from Negotiate Middleware)
+                // We must capture this BEFORE we touch IHttpAuthenticationFeature
+                var existingWindowsUser = context.User;
+
+                // 2. Retrieve the RavenDB auth feature (created by HttpsConnectionMiddleware on HTTPS)
+                var authFeature = context.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
+
+                // 3. If running on HTTP or no Cert, the feature might be the default one or null.
+                // We need to swap it for RavenServer.AuthenticateConnection, BUT keep the user!
+                if (authFeature == null)
+                {
+                    authFeature = new RavenServer.AuthenticateConnection(_server.TwoFactor);
+                    authFeature.Status = RavenServer.AuthenticationStatus.NoCertificateProvided;
+
+                    // CRITICAL FIX: Restore the Windows User into our new feature
+                    if (existingWindowsUser != null)
+                    {
+                        ((IHttpAuthenticationFeature)authFeature).User = existingWindowsUser;
+                    }
+
+                    // Now it is safe to replace the feature
+                    context.Features.Set<IHttpAuthenticationFeature>(authFeature);
+                }
+
+                // 4. Proceed with logic (Cert vs Windows check)
+                if (_server.Configuration.Security.WindowsAuthEnabled && (authFeature.Status == RavenServer.AuthenticationStatus.NoCertificateProvided ||
+                    authFeature.Status == RavenServer.AuthenticationStatus.None))
+                {
+                    // Now context.User will correctly return the existingWindowsUser we preserved
+                    if (context.User?.Identity?.IsAuthenticated == true)
+                    {
+                        // todo bartek: authorize same way httpsConnectionMiddleware does it
+                    }
+                    else
+                    {
+                        // Authentication failed -> Challenge
+                        await context.ChallengeAsync(NegotiateDefaults.AuthenticationScheme);
+                        return;
+                    }
+                }
+
                 context.Response.StatusCode = (int)HttpStatusCode.OK;
                 context.Response.Headers[Constants.Headers.ContentType] = ContentTypeHeaderValue;
 
