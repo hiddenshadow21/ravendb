@@ -2098,7 +2098,7 @@ namespace Raven.Server
                 using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
                 using (ctx.OpenReadTransaction())
                 {
-                    // todo bartek: migrate from cert to windows user
+                    // todo RavenDB-24987: migrate from cert to windows user
                     /*var cert = ServerStore.Cluster.GetCertificateByThumbprint(ctx, certificate.Thumbprint) ??
                                ServerStore.Cluster.GetLocalStateByThumbprint(ctx, certificate.Thumbprint);
 
@@ -2119,7 +2119,7 @@ namespace Raven.Server
                         }
                     }*/
                     
-                    authenticationStatus.Status = AuthenticationStatus.ClusterAdmin;
+                    authenticationStatus.Status = AuthenticationStatus.Operator;
                 }
             }
 

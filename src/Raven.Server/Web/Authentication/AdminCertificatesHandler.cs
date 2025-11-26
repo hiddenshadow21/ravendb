@@ -664,6 +664,43 @@ namespace Raven.Server.Web.Authentication
         {
             var clientCert = GetCurrentCertificate();
 
+            if (clientCert == null && Server.Configuration.Security.WindowsAuthEnabled)
+            {
+                var user = GetCurrentUser();
+                if (user is { Identity.IsAuthenticated: true })
+                {
+                    using (ServerStore.ContextPool.AllocateOperationContext(out TransactionOperationContext ctx))
+                    using (ctx.OpenReadTransaction())
+                    {
+                        // todo RavenDB-24987: implement actual check from cert definition
+                        var certDef = new CertificateDefinition
+                        {
+                            Name = user.Identity.Name,
+                            Permissions = new Dictionary<string, DatabaseAccess>(),
+                            SecurityClearance = SecurityClearance.ClusterAdmin,
+                        };
+
+                        var certificate = ctx.ReadObject(certDef.ToJson(), "User/Certificate/Definition");
+
+                        await using (var writer = new AsyncBlittableJsonTextWriter(ctx, ResponseBodyStream()))
+                        {
+                            var certificateDefinition = JsonDeserializationServer.CertificateDefinition(certificate);
+                            var certificateDJV = certificateDefinition.ToJson(false);
+
+                            /*
+                            var hasTwoFactor = certificate.TryGet(nameof(PutCertificateCommand.TwoFactorAuthenticationKey), out string _);
+                            certificateDJV[HasTwoFactorFieldName] = hasTwoFactor;
+
+                            var feature = HttpContext.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
+                            certificateDJV[TwoFactorExpirationDate] = feature?.TwoFactorAuthRegistration?.Expiry;*/
+
+                            ctx.Write(writer, certificateDJV);
+                        }
+                    }
+                    return;
+                }
+            }
+
             if (clientCert == null)
             {
                 NoContentStatus();

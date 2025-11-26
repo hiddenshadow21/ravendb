@@ -7,6 +7,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
@@ -79,6 +80,12 @@ namespace Raven.Server.Web
         {
             var feature = HttpContext.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
             return feature?.Certificate;
+        }
+        
+        public ClaimsPrincipal GetCurrentUser()
+        {
+            var feature = HttpContext.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
+            return feature?.User;
         }
 
         public CancellationToken AbortRequestToken
