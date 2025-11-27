@@ -2361,31 +2361,41 @@ namespace Raven.Server
                     try
                     {
                         (stream, cert) = await AuthenticateAsServerIfSslNeeded(stream);
-                        
+
+                        // 2. Windows Auth Handshake (If no Cert provided)
                         if (cert == null && Configuration.Security.WindowsAuthEnabled)
                         {
                             try
                             {
-                                // Note: This modifies the protocol. The CLIENT must initiate the Negotiate handshake.
-                                // We use a short timeout so we don't hang if a standard client connects.
+                                // Wrap the SSL stream in NegotiateStream
                                 var negotiateStream = new NegotiateStream(stream, leaveInnerStreamOpen: true);
 
-                                // You might want to make this timeout configurable
+                                // Wait for client to authenticate (with a short timeout to avoid hanging non-auth clients)
                                 var authTask = negotiateStream.AuthenticateAsServerAsync();
+                    
+                                // 2 seconds timeout
                                 if (await Task.WhenAny(authTask, Task.Delay(2000)) == authTask)
                                 {
-                                    await authTask; // Throw if failed
+                                    await authTask; // Verify it didn't fail
+                        
                                     if (negotiateStream.IsAuthenticated)
                                     {
+                                        // Capture the identity
                                         claimsPrincipal = new ClaimsPrincipal(negotiateStream.RemoteIdentity);
-                                        stream = negotiateStream; // CRITICAL: Use the wrapped stream!
+                            
+                                        // CRITICAL: Replace the 'stream' variable so all subsequent 
+                                        // reads/writes (JSON headers) go through the encrypted/authenticated layer.
+                                        stream = negotiateStream; 
                                     }
                                 }
                             }
                             catch (Exception ex)
                             {
                                 if (_tcpLogger.IsDebugEnabled)
-                                    _tcpLogger.Debug("Windows Auth handshake failed or timed out. Proceeding as anonymous.", ex);
+                                    _tcpLogger.Debug("Windows Auth handshake failed or timed out.", ex);
+                    
+                                // Note: If this fails, we proceed with 'claimsPrincipal = null'. 
+                                // The connection will likely fail later at Authorization step.
                             }
                         }
                     }
@@ -3025,12 +3035,6 @@ namespace Raven.Server
 
             if (configuration.Security.AuthenticationEnabled == false)
                 return true;
-
-            if (!(stream is SslStream sslStream))
-            {
-                msg = "TCP connection is required to use SSL when authentication is enabled";
-                return false;
-            }
 
             AuthenticateConnection auth;
             if (certificate == null && Configuration.Security.WindowsAuthEnabled && claimsPrincipal is { Identity.IsAuthenticated: true })

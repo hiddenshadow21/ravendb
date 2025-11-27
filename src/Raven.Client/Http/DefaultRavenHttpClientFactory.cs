@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using Raven.Client.Util;
 
@@ -85,11 +86,17 @@ internal sealed class DefaultRavenHttpClientFactory : IRavenHttpClientFactory
         var httpMessageHandler = new HttpClientHandler();
 
         ConfigureHttpMessageHandler(httpMessageHandler, certificate, setSslProtocols, useHttpDecompression, hasExplicitlySetDecompressionUsage, pooledConnectionLifetime, pooledConnectionIdleTimeout, configureHttpMessageHandler);
-        
-        httpMessageHandler.Credentials = CredentialCache.DefaultCredentials;
+
+        if (UseCredentials)
+        {
+            httpMessageHandler.Credentials = CredentialCache.DefaultNetworkCredentials; //new NetworkCredential();
+            httpMessageHandler.PreAuthenticate = true;
+        }
 
         return httpMessageHandler;
     }
+
+    public static bool UseCredentials { get; set; }
 
     internal static void ConfigureHttpMessageHandler(HttpClientHandler httpMessageHandler, X509Certificate2 certificate, bool setSslProtocols, bool useCompression, bool hasExplicitlySetCompressionUsage = false, TimeSpan? pooledConnectionLifetime = null, TimeSpan? pooledConnectionIdleTimeout = null, Action<HttpMessageHandler> configureHttpMessageHandler = null)
     {

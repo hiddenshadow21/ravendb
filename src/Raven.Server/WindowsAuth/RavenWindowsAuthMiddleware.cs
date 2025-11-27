@@ -46,6 +46,14 @@ public class RavenWindowsAuthMiddleware
 
             context.Features.Set<IHttpAuthenticationFeature>(authFeature);
         }
+        else
+        {
+            if (authFeature.Certificate != null)
+            {
+                await _next(context);
+                return;
+            }
+        }
 
         // 3. Logic: Decide whether to Allow, Challenge, or Give Up (Show Error Page)
         
