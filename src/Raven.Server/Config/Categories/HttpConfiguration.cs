@@ -11,9 +11,12 @@ namespace Raven.Server.Config.Categories
     [ConfigurationCategory(ConfigurationCategoryType.Http)]
     public sealed class HttpConfiguration : ConfigurationCategory
     {
-        public HttpConfiguration()
+        public HttpConfiguration(SecurityConfiguration securityConfiguration)
         {
-            Protocols = PlatformDetails.CanUseHttp2 ? HttpProtocols.Http1AndHttp2 : HttpProtocols.Http1;
+            if (securityConfiguration.WindowsAuthEnabled)
+                Protocols = HttpProtocols.Http1;
+            else
+                Protocols = PlatformDetails.CanUseHttp2 ? HttpProtocols.Http1AndHttp2 : HttpProtocols.Http1;
         }
 
         [Description("Set Kestrel's minimum required data rate in bytes per second. This option must be configured together with 'Http.MinDataRateGracePeriod'.")]

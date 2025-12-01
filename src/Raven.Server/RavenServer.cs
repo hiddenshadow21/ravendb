@@ -27,6 +27,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
@@ -266,7 +267,10 @@ namespace Raven.Server
                             options.Listen(address, ListenEndpoints.Port, listenOptions =>
                             {
                                 listenOptions
-                                    .UseHttps()
+                                    .UseHttps(new TlsHandshakeCallbackOptions
+                                    {
+                                        OnConnection = _httpsConnectionMiddleware.OnHandshakeAsync
+                                    })
                                     .Use(_httpsConnectionMiddleware.OnConnectionAsync);
                             });
                         }

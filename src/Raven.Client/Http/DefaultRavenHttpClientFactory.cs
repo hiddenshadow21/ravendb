@@ -79,6 +79,7 @@ internal sealed class DefaultRavenHttpClientFactory : IRavenHttpClientFactory
     internal static void ConfigureHttpClient(HttpClient httpClient, TimeSpan timeout)
     {
         httpClient.Timeout = timeout;
+        httpClient.DefaultRequestHeaders.Add(UseCredentials ? "X-WindowsAuth" : "X-Certificate", "RavenDB");
     }
 
     internal static HttpClientHandler CreateHttpMessageHandler(X509Certificate2 certificate, bool setSslProtocols, bool useHttpDecompression, bool hasExplicitlySetDecompressionUsage = false, TimeSpan? pooledConnectionLifetime = null, TimeSpan? pooledConnectionIdleTimeout = null, Action<HttpMessageHandler> configureHttpMessageHandler = null)

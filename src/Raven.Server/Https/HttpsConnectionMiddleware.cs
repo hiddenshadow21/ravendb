@@ -22,6 +22,7 @@ namespace Raven.Server.Https
         // See http://oid-info.com/get/1.3.6.1.5.5.7.3.1
         // Indicates that a certificate can be used as a SSL server certificate
         private readonly X509Certificate2 _originalServerCertificate;
+
         public HttpsConnectionMiddleware(RavenServer server, KestrelServerOptions options, X509Certificate2 originalServerCertificate)
         {
             _server = server;
@@ -76,24 +77,28 @@ namespace Raven.Server.Https
                 };
             });
         }
+        
+        public ValueTask<SslServerAuthenticationOptions> OnHandshakeAsync(TlsHandshakeCallbackContext context)
+        {
+            // [CRITICAL] Enable delayed negotiation (popup support)
+            context.AllowDelayedClientCertificateNegotation = true;
+
+            var sslOptions = new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _originalServerCertificate,
+                ClientCertificateRequired = false, // Start anonymous
+                EnabledSslProtocols = SslProtocols.Tls12, // Force TLS 1.2
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+            };
+
+            return new ValueTask<SslServerAuthenticationOptions>(sslOptions);
+        }
 
         public async Task OnConnectionAsync(ConnectionContext context, Func<Task> next)
         {
             if (_server.ServerStore.Initialized == false)
                 await _server.ServerStore.InitializationCompleted.WaitAsync();
-
-            var tlsConnectionFeature = context.Features.Get<ITlsConnectionFeature>();
-            X509Certificate2 certificate = null;
-            if (tlsConnectionFeature != null)
-                certificate = await tlsConnectionFeature.GetClientCertificateAsync(context.ConnectionClosed);
-
-            certificate = RavenServer.GetCertificateForAuthorization(certificate);
-
-            var httpConnectionFeature = context.Features.Get<IHttpConnectionFeature>();
-            var authenticationStatus = _server.AuthenticateConnectionCertificate(certificate, httpConnectionFeature);
-
-            // build the token
-            context.Features.Set<IHttpAuthenticationFeature>(authenticationStatus);
 
             await next();
         }

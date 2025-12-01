@@ -14,6 +14,7 @@ using Xunit;
 using FastTests;
 using Orders;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Commands;
 using Raven.Client.Documents.Operations.AI;
 using Raven.Client.Documents.Subscriptions;
 using Raven.Client.Exceptions.Documents.Subscriptions;
@@ -38,7 +39,7 @@ public static class Program
         using var store = new DocumentStore
         {
             Urls = new[] { "https://a.certs-test-bartek.ravendb.run" },
-            //Certificate = new X509Certificate2(@"C:\Users\bartosz.piekarski\Downloads\certs-test-bartek.Cluster.Settings 2025-11-21 10-22\admin.client.certificate.certs-test-bartek.pfx"),
+            Certificate = new X509Certificate2(@"C:\Users\bartosz.piekarski\Downloads\certs-test-bartek.Cluster.Settings 2025-11-21 10-22\admin.client.certificate.certs-test-bartek.pfx"),
             Conventions =
             {
                 HttpVersion = HttpVersion.Version11,
@@ -56,7 +57,18 @@ public static class Program
 
     private static async Task TestSub(DocumentStore store)
     {
-        await CreateSub(store);
+        SubscriptionState subState;
+        try
+        {
+            subState = await store.Subscriptions.GetSubscriptionStateAsync(SubscriptionName);
+        }
+        catch (Exception e)
+        {
+            subState = null;
+            Console.WriteLine(e);
+        }
+        if (subState == null)
+            await CreateSub(store);
 
         var options = new SubscriptionWorkerOptions(SubscriptionName)
         {

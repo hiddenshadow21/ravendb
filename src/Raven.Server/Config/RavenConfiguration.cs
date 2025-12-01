@@ -148,13 +148,13 @@ namespace Raven.Server.Config
 
             Core = new CoreConfiguration();
 
-            Http = new HttpConfiguration();
+            Security = new SecurityConfiguration();
+            Http = new HttpConfiguration(Security);
             Replication = new ReplicationConfiguration();
             Cluster = new ClusterConfiguration();
             Etl = new EtlConfiguration();
             Ai = new AiConfiguration();
             Storage = new StorageConfiguration();
-            Security = new SecurityConfiguration();
             Backup = new BackupConfiguration();
             PerformanceHints = new PerformanceHintsConfiguration();
             Indexing = new IndexingConfiguration(this);
@@ -213,6 +213,7 @@ namespace Raven.Server.Config
             var settingsNames = Settings.AsEnumerable().Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var serverWideSettingsNames = ServerWideSettings?.AsEnumerable().Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            Security.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Http.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Embedded.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Server.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
@@ -226,7 +227,6 @@ namespace Raven.Server.Config
             Logs.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Memory.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Storage.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
-            Security.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Backup.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Indexing.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);
             Monitoring.Initialize(Settings, settingsNames, ServerWideSettings, serverWideSettingsNames, ResourceType, ResourceName);

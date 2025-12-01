@@ -30,6 +30,7 @@ using Raven.Client.Properties;
 using Raven.Client.Util;
 using Raven.Server.Config;
 using Raven.Server.Exceptions;
+using Raven.Server.Https;
 using Raven.Server.Logging;
 using Raven.Server.Rachis;
 using Raven.Server.Routing;
@@ -37,7 +38,6 @@ using Raven.Server.ServerWide;
 using Raven.Server.TrafficWatch;
 using Raven.Server.Utils;
 using Raven.Server.Web;
-using Raven.Server.WindowsAuth;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Logging;
@@ -65,11 +65,8 @@ namespace Raven.Server
             _router = app.ApplicationServices.GetService<RequestRouter>();
             _server = app.ApplicationServices.GetService<RavenServer>();
 
-            if (_server.Configuration.Security.WindowsAuthEnabled)
-            {
-                app.UseAuthentication();
-                app.UseMiddleware<RavenWindowsAuthMiddleware>();
-            }
+            app.UseAuthentication();
+            app.UseMiddleware<MixedAuthMiddleware>();
             
             if (_server.Configuration.Http.UseResponseCompression)
             {

@@ -339,7 +339,9 @@ namespace Raven.Client.Documents.Conventions
 #if NETSTANDARD2_0
             HttpVersion = System.Net.HttpVersion.Version11;
 #else
-            HttpVersion = System.Net.HttpVersion.Version20;
+            //HttpVersion = System.Net.HttpVersion.Version20;
+            // todo RavenDB-24987: set this option for server when windows auth is enabled
+            HttpVersion = System.Net.HttpVersion.Version11;
 #endif
 
             OperationStatusFetchMode = OperationStatusFetchMode.ChangesApi;
