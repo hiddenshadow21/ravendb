@@ -266,11 +266,21 @@ namespace Raven.Server
                         {
                             options.Listen(address, ListenEndpoints.Port, listenOptions =>
                             {
+                                if (Configuration.Security.PrioritizeWindowsAuth)
+                                {
+                                    listenOptions
+                                        .UseHttps(new TlsHandshakeCallbackOptions
+                                        {
+                                            OnConnection = _httpsConnectionMiddleware.OnHandshakeAsync
+                                        });
+                                }
+                                else
+                                {
+                                    listenOptions
+                                        .UseHttps();
+                                }
+
                                 listenOptions
-                                    .UseHttps(new TlsHandshakeCallbackOptions
-                                    {
-                                        OnConnection = _httpsConnectionMiddleware.OnHandshakeAsync
-                                    })
                                     .Use(_httpsConnectionMiddleware.OnConnectionAsync);
                             });
                         }
@@ -315,7 +325,6 @@ namespace Raven.Server
                             services.Configure<DeflateCompressionProviderOptions>(options => { options.Level = Configuration.Http.DeflateResponseCompressionLevel; });
 
                             services.AddResponseCompression();
-                            
                             services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
                                 .AddNegotiate();
                         }

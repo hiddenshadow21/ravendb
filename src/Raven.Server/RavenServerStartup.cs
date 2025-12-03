@@ -65,8 +65,11 @@ namespace Raven.Server
             _router = app.ApplicationServices.GetService<RequestRouter>();
             _server = app.ApplicationServices.GetService<RavenServer>();
 
-            app.UseAuthentication();
-            app.UseMiddleware<MixedAuthMiddleware>();
+            if (_server.Configuration.Security.WindowsAuthEnabled)
+            {
+                app.UseAuthentication();
+                app.UseMiddleware<MixedAuthMiddleware>();
+            }
             
             if (_server.Configuration.Http.UseResponseCompression)
             {

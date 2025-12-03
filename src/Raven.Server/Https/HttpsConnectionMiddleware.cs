@@ -39,7 +39,7 @@ namespace Raven.Server.Https
             {
                 o.SslProtocols = SslProtocols.Tls13 | SslProtocols.Tls12;
                 o.CheckCertificateRevocation = false;
-                o.ClientCertificateMode = server.Configuration.Security.DoNotAskForClientCertificate ? ClientCertificateMode.DelayCertificate : ClientCertificateMode.AllowCertificate;
+                o.ClientCertificateMode = server.Configuration.Security.PrioritizeWindowsAuth ? ClientCertificateMode.DelayCertificate : ClientCertificateMode.AllowCertificate;
                 o.ClientCertificateValidation = (certificate, chain, sslPolicyErrors) =>
                 {
                     if (certificate == null)
@@ -87,7 +87,7 @@ namespace Raven.Server.Https
             {
                 ServerCertificate = _originalServerCertificate,
                 ClientCertificateRequired = false, // Start anonymous
-                EnabledSslProtocols = SslProtocols.Tls12, // Force TLS 1.2
+                EnabledSslProtocols = SslProtocols.Tls12,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
             };
@@ -99,6 +99,22 @@ namespace Raven.Server.Https
         {
             if (_server.ServerStore.Initialized == false)
                 await _server.ServerStore.InitializationCompleted.WaitAsync();
+
+            if (_server.Configuration.Security.PrioritizeWindowsAuth == false)
+            {
+                var tlsConnectionFeature = context.Features.Get<ITlsConnectionFeature>();
+                X509Certificate2 certificate = null;
+                if (tlsConnectionFeature != null)
+                    certificate = await tlsConnectionFeature.GetClientCertificateAsync(context.ConnectionClosed);
+
+                certificate = RavenServer.GetCertificateForAuthorization(certificate);
+
+                var httpConnectionFeature = context.Features.Get<IHttpConnectionFeature>();
+                var authenticationStatus = _server.AuthenticateConnectionCertificate(certificate, httpConnectionFeature);
+
+                // build the token
+                context.Features.Set<IHttpAuthenticationFeature>(authenticationStatus);
+            }
 
             await next();
         }

@@ -237,8 +237,8 @@ namespace Raven.Server.Config.Categories
         
         [Description("Skip client certificate when using Windows auth.")]
         [DefaultValue(false)]
-        [ConfigurationEntry("Security.DoNotAskForClientCertificate", ConfigurationEntryScope.ServerWideOnly)]
-        public bool DoNotAskForClientCertificate { get; set; }
+        [ConfigurationEntry("Security.PrioritizeWindowsAuth", ConfigurationEntryScope.ServerWideOnly)]
+        public bool PrioritizeWindowsAuth { get; set; }
         
         [Description("Windows auth")]
         [DefaultValue(false)]
@@ -300,6 +300,9 @@ namespace Raven.Server.Config.Categories
                 if (configuration.Security.IsUnsecureAccessSetupValid.HasValue == false)
                     configuration.Security.IsUnsecureAccessSetupValid = true;
             }
+            
+            if (configuration.Security.WindowsAuthEnabled == false && configuration.Security.PrioritizeWindowsAuth)
+                throw new ArgumentException("When Windows authentication is disabled, the PrioritizeWindowsAuth option should be set to false.");
         }
 
         private static IPAddress[] DetermineServerIp(Uri serverUri)

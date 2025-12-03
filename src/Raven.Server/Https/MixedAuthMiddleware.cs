@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
@@ -32,6 +32,10 @@ public class MixedAuthMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         bool windowsAuthEnabled = _server.Configuration.Security.WindowsAuthEnabled;
+        if (windowsAuthEnabled == false)
+        {
+            throw new InvalidOperationException("Windows Authentication is not enabled on this server.");
+        }
         
         // 1. Headers Check (External Load Balancers / Reverse Proxies)
         var certHeader = GetHeader(context, "X-Certificate");
@@ -42,20 +46,19 @@ public class MixedAuthMiddleware
         }
         
         var windowsAuthHeader = GetHeader(context, "X-WindowsAuth");
-        if (string.IsNullOrEmpty(windowsAuthHeader) == false && windowsAuthEnabled)
+        if (string.IsNullOrEmpty(windowsAuthHeader) == false)
         {
             await TryAuthorizeWithWindowsAuth(context);
             return;
         }
-        
-        // 2. Main Logic for "Delayed" Certificate Mode
-        if (windowsAuthEnabled && _server.Configuration.Security.DoNotAskForClientCertificate)
+
+        if (_server.Configuration.Security.PrioritizeWindowsAuth)
         {
             // We should use Certificate Auth if ANY of these are true:
             // A. The user explicitly asked via URL (?askForCertificate=true)
             // B. We previously set a cookie saying they prefer certificates
             // C. The TLS connection already has a certificate attached (Reuse)
-            
+
             bool explicitRequest = context.Request.Query.ContainsKey("askForCertificate");
             bool hasPreferenceCookie = context.Request.Cookies.ContainsKey(CertPreferenceCookieName);
             bool hasCertOnConnection = context.Connection.ClientCertificate != null;
@@ -63,17 +66,21 @@ public class MixedAuthMiddleware
             if (explicitRequest || hasPreferenceCookie || hasCertOnConnection)
             {
                 await TryAuthorizeWithCertificate(context);
+                return;
             }
-            else
-            {
-                // Default to Windows Auth
-                await TryAuthorizeWithWindowsAuth(context);
-            }
-            return;
         }
-
-        // Default behavior (AllowCertificate / RequireCertificate modes)
-        await TryAuthorizeWithCertificate(context);
+        else
+        {
+            var authFeature = context.Features.Get<IHttpAuthenticationFeature>() as RavenServer.AuthenticateConnection;
+            // certificate was provided during tls handshake
+            if (authFeature?.Certificate != null)
+            {
+                await _next(context);
+                return;
+            }
+        }
+        
+        await TryAuthorizeWithWindowsAuth(context);
     }
 
     private async Task TryAuthorizeWithWindowsAuth(HttpContext context)

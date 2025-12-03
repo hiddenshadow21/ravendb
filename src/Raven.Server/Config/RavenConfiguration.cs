@@ -9,9 +9,11 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 
 #if !RVN
+using CsvHelper;
 using Microsoft.Extensions.Configuration.CommandLine;
 using Microsoft.Extensions.Configuration.Memory;
 using Raven.Client.Documents.Conventions;
@@ -149,7 +151,7 @@ namespace Raven.Server.Config
             Core = new CoreConfiguration();
 
             Security = new SecurityConfiguration();
-            Http = new HttpConfiguration(Security);
+            Http = new HttpConfiguration();
             Replication = new ReplicationConfiguration();
             Cluster = new ClusterConfiguration();
             Etl = new EtlConfiguration();
@@ -262,6 +264,7 @@ namespace Raven.Server.Config
             try
             {
                 SecurityConfiguration.Validate(this);
+                ValidateConfiguration();
             }
             catch (Exception e)
             {
@@ -271,6 +274,17 @@ namespace Raven.Server.Config
                 Thread.Sleep(3000);
 
                 throw;
+            }
+        }
+
+        private void ValidateConfiguration()
+        {
+            if (Security.WindowsAuthEnabled)
+            {
+                if (Http.Protocols.HasFlag(HttpProtocols.Http2))
+                {
+                    throw new ArgumentException("Cannot enable both Windows Authentication and HTTP/2. Please disable HTTP/2.");
+                }
             }
         }
 
