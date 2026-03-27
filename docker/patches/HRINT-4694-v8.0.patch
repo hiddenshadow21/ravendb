@@ -1,0 +1,26 @@
+From f5fa6fd99bed8d5b0e6c92fa66c44a07bd54ae9e Mon Sep 17 00:00:00 2001
+From: "copilot-swe-agent[bot]" <198982749+Copilot@users.noreply.github.com>
+Date: Fri, 27 Mar 2026 07:42:42 +0000
+Subject: [PATCH] HRINT-4694 Remove windows-1809-latest tag from
+ GetImageTagsForManifest
+
+Co-authored-by: hiddenshadow21 <48121604+hiddenshadow21@users.noreply.github.com>
+---
+ docker/common.ps1 | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/docker/common.ps1 b/docker/common.ps1
+index 22578dfeff3..de77372a274 100644
+--- a/docker/common.ps1
++++ b/docker/common.ps1
+@@ -135,7 +135,6 @@ function GetImageTagsForManifest {
+         "${repo}:8.0-ubuntu-latest",
+         "${repo}:8.0-ubuntu-arm32v7-latest",
+         "${repo}:8.0-ubuntu-arm64v8-latest",
+-        "${repo}:8.0-windows-1809-latest",
+         "${repo}:8.0-windows-ltsc2022-latest"
+     )
+ }
+-- 
+2.53.0
+
